@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import NavBar from './NavBar';
 import PlayerBar from './PlayerBar';
+import ProfileMenu from './ProfileMenu';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -27,7 +28,7 @@ export default function GameLayout() {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('id', user.id)
         .maybeSingle();
 
       if (error) {
@@ -41,7 +42,7 @@ export default function GameLayout() {
 
   useEffect(() => {
     const channel = supabase
-      .channel('player-profile-realtime')
+      .channel('profile-menu-realtime')
       .on(
         'postgres_changes',
         {
@@ -62,6 +63,8 @@ export default function GameLayout() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
+      <ProfileMenu profile={profile} />
+
       <PlayerBar profile={profile} isLoading={isLoading} />
 
       <main className="flex-1 pb-20 overflow-auto">
