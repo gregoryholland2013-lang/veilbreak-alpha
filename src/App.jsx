@@ -2,12 +2,8 @@ import { Toaster } from '@/components/ui/toaster';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClientInstance } from '@/lib/query-client';
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
-
-import AuthGate from '@/components/auth/AuthGate';
-
 import PageNotFound from './lib/PageNotFound';
 import GameLayout from './components/game/GameLayout';
-
 import Home from './pages/Home';
 import Collection from './pages/Collection';
 import Summon from './pages/Summon';
@@ -48,9 +44,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClientInstance}>
       <Router>
-        <AuthGate>
           <AuthenticatedApp />
-        </AuthGate>
       </Router>
 
       <Toaster />
