@@ -16,6 +16,7 @@ import Social from './pages/Social';
 import GuildPage from './pages/Guild';
 import EventDungeon from './pages/EventDungeon';
 import HolyWars from './pages/HolyWars';
+import AuthGate from '@/components/auth/AuthGate';
 
 const AuthenticatedApp = () => {
   return (
@@ -44,7 +45,9 @@ function App() {
   return (
     <QueryClientProvider client={queryClientInstance}>
       <Router>
+        <AuthGate>
           <AuthenticatedApp />
+        <AuthGate>
       </Router>
 
       <Toaster />
