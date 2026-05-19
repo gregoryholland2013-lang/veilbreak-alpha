@@ -1,77 +1,218 @@
-import React, { useEffect } from 'react';
-import { Outlet } from 'react-router-dom';
-import NavBar from './NavBar';
-import PlayerBar from './PlayerBar';
-import ProfileMenu from './ProfileMenu';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Sparkles } from 'lucide-react';
+import { toast } from 'sonner';
 
-export default function GameLayout() {
-  const queryClient = useQueryClient();
+const HERO_IMAGE =
+  'https://media.base44.com/images/public/69e667952dab314dabbd3859/12dd112d1_generated_image.png';
 
-  const { data: profile = null, isLoading } = useQuery({
-    queryKey: ['playerProfile'],
-    queryFn: async () => {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
+export default function AuthGate({ children }) {
+  const [session, setSession] = useState(null);
+  const [loadingSession, setLoadingSession] = useState(true);
 
-      if (userError) {
-        throw userError;
-      }
+  const [mode, setMode] = useState('login'); // login | signup
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
-      if (!user) {
-        return null;
-      }
-
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .maybeSingle();
-
-      if (error) {
-        throw error;
-      }
-
-      return data;
-    },
-    initialData: null,
-  });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const channel = supabase
-      .channel('profile-menu-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'profiles',
-        },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ['playerProfile'] });
-        }
-      )
-      .subscribe();
+    let mounted = true;
+
+    async function loadSession() {
+      const { data, error } = await supabase.auth.getSession();
+
+      if (error) {
+        console.error(error);
+      }
+
+      if (mounted) {
+        setSession(data?.session || null);
+        setLoadingSession(false);
+      }
+    }
+
+    loadSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+      setLoadingSession(false);
+    });
 
     return () => {
-      supabase.removeChannel(channel);
+      mounted = false;
+      subscription.unsubscribe();
     };
-  }, [queryClient]);
+  }, []);
+
+  const submit = async (e) => {
+    e.preventDefault();
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail || !password) {
+      toast.error('Enter your email and password');
+      return;
+    }
+
+    if (password.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      if (mode === 'signup') {
+        const { error } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password,
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        toast.success('Account created! Check your email if confirmation is enabled.');
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        toast.success('Welcome back!');
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Authentication failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loadingSession) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (session) {
+    return children;
+  }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <ProfileMenu profile={profile} />
+    <div className="relative min-h-screen overflow-hidden bg-background">
+      {/* Background */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <img
+          src={HERO_IMAGE}
+          alt=""
+          className="w-full h-full object-cover object-top opacity-45"
+        />
+        <div className="absolute inset-0 bg-background/65" />
+        <div className="absolute inset-0 bg-gradient-to-b from-background/20 via-background/60 to-background" />
+        <div className="absolute inset-0 bg-gradient-to-r from-background/80 via-transparent to-background/80" />
+      </div>
 
-      <PlayerBar profile={profile} isLoading={isLoading} />
+      {/* Login card */}
+      <div className="relative z-10 min-h-screen flex items-center justify-center px-5">
+        <div className="w-full max-w-sm rounded-2xl border border-primary/30 bg-background/70 backdrop-blur-md shadow-2xl p-5 space-y-5">
+          <div className="text-center space-y-2">
+            <div className="w-14 h-14 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center mx-auto">
+              <Sparkles className="w-7 h-7 text-primary" />
+            </div>
 
-      <main className="flex-1 pb-20 overflow-auto">
-        <Outlet context={{ profile }} />
-      </main>
+            <div>
+              <h1 className="font-display text-3xl font-black text-primary text-glow-gold tracking-widest">
+                VEILBREAK
+              </h1>
+              <p className="text-[11px] tracking-[0.28em] uppercase text-muted-foreground">
+                Into the Singularity
+              </p>
+            </div>
+          </div>
 
-      <NavBar />
+          <div className="grid grid-cols-2 rounded-xl border border-border overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setMode('login')}
+              className={`h-10 text-xs font-bold transition-all ${
+                mode === 'login'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-card/70 text-muted-foreground'
+              }`}
+            >
+              Login
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMode('signup')}
+              className={`h-10 text-xs font-bold transition-all ${
+                mode === 'signup'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-card/70 text-muted-foreground'
+              }`}
+            >
+              Sign Up
+            </button>
+          </div>
+
+          <form onSubmit={submit} className="space-y-3">
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-muted-foreground">
+                Email
+              </p>
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@email.com"
+                className="h-10"
+                autoComplete="email"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-muted-foreground">
+                Password
+              </p>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="At least 6 characters"
+                className="h-10"
+                autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+              />
+            </div>
+
+            <Button type="submit" disabled={saving} className="w-full">
+              {saving
+                ? mode === 'signup'
+                  ? 'Creating account…'
+                  : 'Logging in…'
+                : mode === 'signup'
+                  ? 'Create Account'
+                  : 'Enter Veilbreak'}
+            </Button>
+          </form>
+
+          <p className="text-[10px] text-center text-muted-foreground leading-relaxed">
+            Closed Alpha Build — progress may reset during testing.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
