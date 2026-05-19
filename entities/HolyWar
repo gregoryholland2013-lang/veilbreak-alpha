@@ -1,0 +1,56 @@
+{
+  "name": "HolyWar",
+  "type": "object",
+  "properties": {
+    "guild_a_id": {
+      "type": "string"
+    },
+    "guild_a_name": {
+      "type": "string"
+    },
+    "guild_b_id": {
+      "type": "string"
+    },
+    "guild_b_name": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "active",
+        "completed"
+      ],
+      "default": "pending"
+    },
+    "guild_a_score": {
+      "type": "number",
+      "default": 0
+    },
+    "guild_b_score": {
+      "type": "number",
+      "default": 0
+    },
+    "winner_guild_id": {
+      "type": "string"
+    },
+    "starts_at": {
+      "type": "string"
+    },
+    "ends_at": {
+      "type": "string"
+    },
+    "battle_log": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "default": [],
+      "description": "Array of battle results"
+    }
+  },
+  "required": [
+    "guild_a_id",
+    "guild_b_id"
+  ]
+}

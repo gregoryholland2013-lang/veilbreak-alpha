@@ -1,0 +1,38 @@
+{
+  "name": "PlayerCard",
+  "type": "object",
+  "properties": {
+    "card_id": {
+      "type": "string",
+      "description": "Reference to master Card"
+    },
+    "level": {
+      "type": "number",
+      "default": 1,
+      "description": "Current card level"
+    },
+    "experience": {
+      "type": "number",
+      "default": 0,
+      "description": "Current XP"
+    },
+    "evolved": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether card has been evolved at least once"
+    },
+    "evolve_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Number of times this card has been evolved (max 4)"
+    },
+    "in_deck": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether card is in active deck"
+    }
+  },
+  "required": [
+    "card_id"
+  ]
+}

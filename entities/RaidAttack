@@ -1,0 +1,27 @@
+{
+  "name": "RaidAttack",
+  "type": "object",
+  "properties": {
+    "raid_boss_id": {
+      "type": "string"
+    },
+    "attacker_email": {
+      "type": "string"
+    },
+    "attacker_name": {
+      "type": "string"
+    },
+    "damage_dealt": {
+      "type": "number",
+      "default": 0
+    },
+    "is_killing_blow": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "raid_boss_id",
+    "attacker_email"
+  ]
+}

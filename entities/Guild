@@ -1,0 +1,49 @@
+{
+  "name": "Guild",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Guild name"
+    },
+    "description": {
+      "type": "string"
+    },
+    "emblem": {
+      "type": "string",
+      "description": "Emoji emblem"
+    },
+    "leader_email": {
+      "type": "string"
+    },
+    "member_emails": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "All member emails including leader"
+    },
+    "max_members": {
+      "type": "number",
+      "default": 30
+    },
+    "total_power": {
+      "type": "number",
+      "default": 0,
+      "description": "Sum of member deck powers for ranking"
+    },
+    "holy_war_wins": {
+      "type": "number",
+      "default": 0
+    },
+    "holy_war_losses": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "name",
+    "leader_email"
+  ]
+}

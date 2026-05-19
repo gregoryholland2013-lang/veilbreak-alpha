@@ -1,0 +1,116 @@
+{
+  "name": "TradePost",
+  "type": "object",
+  "properties": {
+    "poster_email": {
+      "type": "string",
+      "description": "Email of the user posting the trade"
+    },
+    "poster_display_name": {
+      "type": "string"
+    },
+    "trade_type": {
+      "type": "string",
+      "enum": [
+        "bazaar",
+        "private"
+      ],
+      "default": "bazaar",
+      "description": "Public bazaar or private friend trade"
+    },
+    "target_email": {
+      "type": "string",
+      "description": "For private trades only \u2014 recipient email"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "accepted",
+        "cancelled",
+        "completed"
+      ],
+      "default": "open"
+    },
+    "offer_gold": {
+      "type": "number",
+      "default": 0
+    },
+    "offer_gems": {
+      "type": "number",
+      "default": 0
+    },
+    "offer_aether_dust": {
+      "type": "number",
+      "default": 0
+    },
+    "offer_spirit_water": {
+      "type": "number",
+      "default": 0
+    },
+    "offer_skill_shards": {
+      "type": "number",
+      "default": 0
+    },
+    "offer_fodder": {
+      "type": "number",
+      "default": 0
+    },
+    "offer_card_id": {
+      "type": "string",
+      "description": "PlayerCard ID being offered (optional)"
+    },
+    "offer_card_name": {
+      "type": "string",
+      "description": "Cached card name for display"
+    },
+    "want_gold": {
+      "type": "number",
+      "default": 0
+    },
+    "want_gems": {
+      "type": "number",
+      "default": 0
+    },
+    "want_aether_dust": {
+      "type": "number",
+      "default": 0
+    },
+    "want_spirit_water": {
+      "type": "number",
+      "default": 0
+    },
+    "want_skill_shards": {
+      "type": "number",
+      "default": 0
+    },
+    "want_fodder": {
+      "type": "number",
+      "default": 0
+    },
+    "want_card_rarity": {
+      "type": "string",
+      "enum": [
+        "any",
+        "common",
+        "rare",
+        "epic",
+        "legendary"
+      ],
+      "default": "any",
+      "description": "Desired card rarity (if wanting a card)"
+    },
+    "accepted_by_email": {
+      "type": "string",
+      "description": "Email of user who accepted the trade"
+    },
+    "note": {
+      "type": "string",
+      "description": "Optional note from the poster"
+    }
+  },
+  "required": [
+    "poster_email",
+    "trade_type"
+  ]
+}
