@@ -16,7 +16,6 @@ import Social from './pages/Social';
 import GuildPage from './pages/Guild';
 import EventDungeon from './pages/EventDungeon';
 import HolyWars from './pages/HolyWars';
-import AuthGate from '@/components/auth/AuthGate';
 
 const AuthenticatedApp = () => {
   return (
@@ -47,7 +46,7 @@ function App() {
       <Router>
         <AuthGate>
           <AuthenticatedApp />
-        <AuthGate>
+        </AuthGate>
       </Router>
 
       <Toaster />
