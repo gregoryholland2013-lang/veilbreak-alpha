@@ -94,14 +94,14 @@ export default function GameLayout() {
     );
   }
 
-  return (
+return (
   <div className="min-h-screen bg-background flex flex-col">
-    <ProfileMenu profile={activeProfile} />
+    <ProfileMenu profile={activeProfile || profile} />
 
-    <PlayerBar profile={activeProfile} isLoading={isLoading} />
+    <PlayerBar profile={activeProfile || profile} isLoading={isLoading} />
 
     <main className="flex-1 pb-20 overflow-auto">
-      <Outlet context={{ profile: activeProfile }} />
+      <Outlet context={{ profile: activeProfile || profile }} />
     </main>
 
     <NavBar />

@@ -37,7 +37,7 @@ export default function ProfileMenu({ profile }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="fixed top-3 left-3 z-[90] w-10 h-10 rounded-xl border border-primary/30 bg-background/80 backdrop-blur-md flex items-center justify-center hover:bg-primary/10 transition-all"
+       className="fixed top-20 left-3 z-[9999] w-12 h-12 rounded-xl border-2 border-yellow-400 bg-red-600 flex items-center justify-center"
         aria-label="Open profile menu"
       >
         <User className="w-5 h-5 text-primary" />
