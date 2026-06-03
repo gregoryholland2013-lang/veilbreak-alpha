@@ -1,13 +1,14 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import NavBar from './NavBar';
 import PlayerBar from './PlayerBar';
-import ProfileMenu from './ProfileMenu';
+import ChooseFaction from '@/components/auth/ChooseFaction';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function GameLayout() {
   const queryClient = useQueryClient();
+  const [localProfile, setLocalProfile] = useState(null);
 
   const { data: profile = null, isLoading } = useQuery({
     queryKey: ['playerProfile'],
@@ -41,8 +42,14 @@ export default function GameLayout() {
   });
 
   useEffect(() => {
+    if (profile) {
+      setLocalProfile(profile);
+    }
+  }, [profile]);
+
+  useEffect(() => {
     const channel = supabase
-      .channel('profile-menu-realtime')
+      .channel('game-layout-profile-realtime')
       .on(
         'postgres_changes',
         {
@@ -61,14 +68,37 @@ export default function GameLayout() {
     };
   }, [queryClient]);
 
+  const activeProfile = localProfile || profile;
+
+  if (isLoading || !activeProfile) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  const hasChosenFaction =
+    activeProfile.faction && activeProfile.faction.trim() !== '';
+
+  if (!hasChosenFaction) {
+    return (
+      <ChooseFaction
+        profile={activeProfile}
+        onChosen={(updatedProfile) => {
+          setLocalProfile(updatedProfile);
+          queryClient.invalidateQueries({ queryKey: ['playerProfile'] });
+        }}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <ProfileMenu profile={profile} />
-
-      <PlayerBar profile={profile} isLoading={isLoading} />
+      <PlayerBar profile={activeProfile} isLoading={isLoading} />
 
       <main className="flex-1 pb-20 overflow-auto">
-        <Outlet context={{ profile }} />
+        <Outlet context={{ profile: activeProfile }} />
       </main>
 
       <NavBar />
