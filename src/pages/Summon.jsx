@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, Coins, Gem } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -49,22 +49,26 @@ export default function Summon() {
   const createPlayerCard = useCreatePlayerCard();
   const updateProfile = useUpdateProfile();
 
+  const summonLockRef = useRef(false);
+
   const [summoning, setSummoning] = useState(false);
   const [revealedCards, setRevealedCards] = useState([]);
   const [showResults, setShowResults] = useState(false);
 
   const activeCards = useMemo(() => {
     return (cards || []).filter((card) => {
-    return (
-      card.is_active !== false &&
-      card.name &&
-      card.evolution_stage === 'base' &&
-      (card.evo_form === 'base' || !card.evo_form)
-    );
+      return (
+        card.is_active !== false &&
+        card.name &&
+        card.image_url &&
+        card.image_url.trim() !== '' &&
+        card.evolution_stage === 'base' &&
+        (card.evo_form === 'base' || !card.evo_form)
+      );
     });
   }, [cards]);
 
-  const randomPick = () => {
+  const randomPick = (excludedIds = new Set()) => {
     if (activeCards.length === 0) {
       return null;
     }
@@ -72,13 +76,23 @@ export default function Summon() {
     const wantedRarity = pickRarity();
 
     let pool = activeCards.filter(
-      (card) => normalizeRarity(card.rarity) === wantedRarity
+      (card) =>
+        normalizeRarity(card.rarity) === wantedRarity &&
+        !excludedIds.has(card.id)
     );
 
     /**
-     * Fallback:
-     * If there are no cards for the rolled rarity yet,
-     * pull from all active cards so summon never soft-locks.
+     * Fallback 1:
+     * If the rolled rarity has no available cards, use any non-excluded active card.
+     */
+    if (pool.length === 0) {
+      pool = activeCards.filter((card) => !excludedIds.has(card.id));
+    }
+
+    /**
+     * Fallback 2:
+     * If the summon pool is smaller than the requested pull count,
+     * allow duplicates rather than breaking the summon.
      */
     if (pool.length === 0) {
       pool = activeCards;
@@ -88,52 +102,55 @@ export default function Summon() {
   };
 
   const doSummon = async (count, currency) => {
-    if (summoning) return;
+    if (summonLockRef.current) return;
 
-    if (profileLoading || cardsLoading) {
-      toast.error('Game data is still loading');
-      return;
-    }
-
-    if (!profile) {
-      toast.error('Profile has not loaded yet');
-      return;
-    }
-
-    if (activeCards.length === 0) {
-      toast.error('No active cards available to summon');
-      return;
-    }
-
-    const totalGoldCost = SUMMON_COST_GOLD * count;
-    const totalGemCost = SUMMON_COST_GEMS * count;
-
-    if (currency === 'gold' && (profile.gold || 0) < totalGoldCost) {
-      toast.error('Not enough gold!');
-      return;
-    }
-
-    if (currency === 'gems' && (profile.gems || 0) < totalGemCost) {
-      toast.error('Not enough gems!');
-      return;
-    }
-
+    summonLockRef.current = true;
     setSummoning(true);
     setShowResults(false);
     setRevealedCards([]);
 
     try {
-      // Animate for a moment
+      if (profileLoading || cardsLoading) {
+        toast.error('Game data is still loading');
+        return;
+      }
+
+      if (!profile) {
+        toast.error('Profile has not loaded yet');
+        return;
+      }
+
+      if (activeCards.length === 0) {
+        toast.error('No active cards available to summon');
+        return;
+      }
+
+      const totalGoldCost = SUMMON_COST_GOLD * count;
+      const totalGemCost = SUMMON_COST_GEMS * count;
+
+      if (currency === 'gold' && (profile.gold || 0) < totalGoldCost) {
+        toast.error('Not enough gold!');
+        return;
+      }
+
+      if (currency === 'gems' && (profile.gems || 0) < totalGemCost) {
+        toast.error('Not enough gems!');
+        return;
+      }
+
       await new Promise((resolve) => setTimeout(resolve, 900));
 
       const pulled = [];
+      const usedCardIds = new Set();
 
       for (let i = 0; i < count; i += 1) {
-        const card = randomPick();
+        const card = randomPick(usedCardIds);
 
         if (!card) {
           throw new Error('No card could be selected');
         }
+
+        usedCardIds.add(card.id);
 
         const playerCard = await createPlayerCard.mutateAsync({
           card_id: card.id,
@@ -148,14 +165,16 @@ export default function Summon() {
           locked: false,
         });
 
-        await supabase.rpc('record_card_collection_pull', {
-          p_card_id: card.id,
-        });
+        const { error: collectionError } = await supabase.rpc(
+          'record_card_collection_pull',
+          {
+            p_card_id: card.id,
+          }
+        );
 
-        pulled.push({
-          card,
-          playerCard,
-        });
+        if (collectionError) {
+          console.warn('Collection archive update failed:', collectionError);
+        }
 
         pulled.push({
           card,
@@ -180,9 +199,10 @@ export default function Summon() {
         count === 1 ? 'Card summoned!' : `${count} cards summoned!`
       );
     } catch (error) {
-      console.error(error);
+      console.error('Summon failed:', error);
       toast.error(error.message || 'Summon failed');
     } finally {
+      summonLockRef.current = false;
       setSummoning(false);
     }
   };
@@ -194,7 +214,6 @@ export default function Summon() {
       <PageHeader title="Summon Portal" />
 
       <div className="px-4 space-y-6">
-        {/* Status */}
         {isLoading && (
           <div className="rounded-xl border border-border bg-card p-4 text-center text-sm text-muted-foreground">
             Loading summon portal…
@@ -203,11 +222,10 @@ export default function Summon() {
 
         {!isLoading && activeCards.length === 0 && (
           <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-center text-sm text-muted-foreground">
-            No active cards are available. Add active cards in Supabase first.
+            No active cards are available. Add active cards with artwork in Supabase first.
           </div>
         )}
 
-        {/* Summon Circle */}
         <motion.div
           className="relative mx-auto w-64 h-64 flex items-center justify-center"
           animate={summoning ? { rotate: 360 } : {}}
@@ -235,7 +253,6 @@ export default function Summon() {
           />
         </motion.div>
 
-        {/* Wallet */}
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-xl border border-border bg-card p-3 text-center">
             <p className="text-xs text-muted-foreground">Gold</p>
@@ -252,7 +269,6 @@ export default function Summon() {
           </div>
         </div>
 
-        {/* Summon Buttons */}
         {!showResults && (
           <div className="space-y-3">
             <Button
@@ -279,7 +295,6 @@ export default function Summon() {
           </div>
         )}
 
-        {/* Results */}
         <AnimatePresence>
           {showResults && revealedCards.length > 0 && (
             <motion.div
@@ -318,7 +333,6 @@ export default function Summon() {
           )}
         </AnimatePresence>
 
-        {/* Rates */}
         <div className="bg-card rounded-xl border border-border p-4">
           <p className="text-xs font-semibold text-muted-foreground mb-2">
             Drop Rates
