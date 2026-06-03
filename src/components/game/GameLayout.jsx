@@ -3,9 +3,9 @@ import { Outlet } from 'react-router-dom';
 import NavBar from './NavBar';
 import PlayerBar from './PlayerBar';
 import ChooseFaction from '@/components/auth/ChooseFaction';
+import ProfileMenu from './ProfileMenu';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
-import ProfileMenu from './ProfileMenu';
 
 export default function GameLayout() {
   const queryClient = useQueryClient();
@@ -94,16 +94,17 @@ export default function GameLayout() {
     );
   }
 
-return (
-  <div className="min-h-screen bg-background flex flex-col">
-    <ProfileMenu profile={activeProfile || profile} />
+  return (
+    <div className="min-h-screen bg-background flex flex-col">
+      <ProfileMenu profile={activeProfile} />
 
-    <PlayerBar profile={activeProfile || profile} isLoading={isLoading} />
+      <PlayerBar profile={activeProfile} isLoading={isLoading} />
 
-    <main className="flex-1 pb-20 overflow-auto">
-      <Outlet context={{ profile: activeProfile || profile }} />
-    </main>
+      <main className="flex-1 pb-20 overflow-auto">
+        <Outlet context={{ profile: activeProfile }} />
+      </main>
 
-    <NavBar />
-  </div>
-);
+      <NavBar />
+    </div>
+  );
+}
