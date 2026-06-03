@@ -22,15 +22,35 @@ export default function AuthGate({ children }) {
     let mounted = true;
 
     async function loadSession() {
-      const { data, error } = await supabase.auth.getSession();
+      try {
+        const { data, error } = await supabase.auth.getSession();
 
-      if (error) {
-        console.error(error);
-      }
+        if (error) {
+          console.error('Session load error:', error);
 
-      if (mounted) {
-        setSession(data?.session || null);
-        setLoadingSession(false);
+          await supabase.auth.signOut();
+
+          if (mounted) {
+            setSession(null);
+            setLoadingSession(false);
+          }
+
+          return;
+        }
+
+        if (mounted) {
+          setSession(data?.session || null);
+          setLoadingSession(false);
+        }
+      } catch (error) {
+        console.error('Unexpected session error:', error);
+
+        await supabase.auth.signOut();
+
+        if (mounted) {
+          setSession(null);
+          setLoadingSession(false);
+        }
       }
     }
 
@@ -38,7 +58,15 @@ export default function AuthGate({ children }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    } = supabase.auth.onAuthStateChange((event, newSession) => {
+      if (!mounted) return;
+
+      if (event === 'SIGNED_OUT') {
+        setSession(null);
+        setLoadingSession(false);
+        return;
+      }
+
       setSession(newSession);
       setLoadingSession(false);
     });
@@ -68,7 +96,7 @@ export default function AuthGate({ children }) {
 
     try {
       if (mode === 'signup') {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email: cleanEmail,
           password,
         });
@@ -77,22 +105,48 @@ export default function AuthGate({ children }) {
           throw error;
         }
 
-        toast.success('Account created! Check your email if confirmation is enabled.');
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email: cleanEmail,
-          password,
-        });
-
-        if (error) {
-          throw error;
+        if (data?.session) {
+          setSession(data.session);
+          toast.success('Account created!');
+          return;
         }
 
-        toast.success('Welcome back!');
+        toast.success('Account created. Please log in.');
+        setMode('login');
+        return;
       }
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (data?.session) {
+        setSession(data.session);
+        toast.success('Welcome back!');
+        return;
+      }
+
+      toast.error('Login failed. Please try again.');
     } catch (error) {
       console.error(error);
-      toast.error(error.message || 'Authentication failed');
+
+      if (error.message?.toLowerCase().includes('invalid login credentials')) {
+        toast.error(
+          'Invalid email or password. If this is a new account, use Sign Up first.'
+        );
+      } else if (error.message?.toLowerCase().includes('already registered')) {
+        toast.error('This email already has an account. Switch to Login.');
+        setMode('login');
+      } else if (error.message?.toLowerCase().includes('security purposes')) {
+        toast.error('Too many attempts. Wait a few seconds and try again.');
+      } else {
+        toast.error(error.message || 'Authentication failed');
+      }
     } finally {
       setSaving(false);
     }
@@ -136,6 +190,7 @@ export default function AuthGate({ children }) {
               <h1 className="font-display text-3xl font-black text-primary text-glow-gold tracking-widest">
                 VEILBREAK
               </h1>
+
               <p className="text-[11px] tracking-[0.28em] uppercase text-muted-foreground">
                 Into the Singularity
               </p>
@@ -173,6 +228,7 @@ export default function AuthGate({ children }) {
               <p className="text-xs font-semibold text-muted-foreground">
                 Email
               </p>
+
               <Input
                 type="email"
                 value={email}
@@ -187,13 +243,16 @@ export default function AuthGate({ children }) {
               <p className="text-xs font-semibold text-muted-foreground">
                 Password
               </p>
+
               <Input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="At least 6 characters"
                 className="h-10"
-                autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                autoComplete={
+                  mode === 'signup' ? 'new-password' : 'current-password'
+                }
               />
             </div>
 
