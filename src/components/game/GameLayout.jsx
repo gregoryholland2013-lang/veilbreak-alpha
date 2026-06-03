@@ -18,31 +18,71 @@ export default function GameLayout() {
   const { data: profile = null, isLoading } = useQuery({
     queryKey: ['playerProfile'],
     queryFn: async () => {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
 
-      if (userError) {
-        throw userError;
-      }
+  if (userError) {
+    throw userError;
+  }
 
-      if (!user) {
-        return null;
-      }
+  if (!user) {
+    return null;
+  }
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .maybeSingle();
+  const { data: existingProfile, error: profileError } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .maybeSingle();
 
-      if (error) {
-        throw error;
-      }
+  if (profileError) {
+    throw profileError;
+  }
 
-      return data;
-    },
+  if (existingProfile) {
+    return existingProfile;
+  }
+
+  const now = new Date().toISOString();
+
+  const { data: createdProfile, error: createError } = await supabase
+    .from('profiles')
+    .insert({
+      id: user.id,
+      email: user.email,
+      display_name:
+        user.user_metadata?.full_name ||
+        user.user_metadata?.name ||
+        user.email?.split('@')[0] ||
+        'Adventurer',
+      level: 1,
+      experience: 0,
+      gold: 1000,
+      gems: 50,
+      stamina: 100,
+      max_stamina: 100,
+      attack_energy: 100,
+      max_attack_energy: 100,
+      defense_energy: 100,
+      max_defense_energy: 100,
+      wins: 0,
+      losses: 0,
+      quests_completed: 0,
+      stats_regen_at: now,
+      created_at: now,
+      updated_at: now,
+    })
+    .select()
+    .single();
+
+  if (createError) {
+    throw createError;
+  }
+
+  return createdProfile;
+},
     initialData: null,
   });
 
