@@ -8,6 +8,7 @@ import {
   useCreatePlayerCard,
   useUpdateProfile,
 } from '@/hooks/useGameData';
+import { supabase } from '@/lib/supabaseClient';
 import GameCard from '@/components/game/GameCard';
 import PageHeader from '@/components/game/PageHeader';
 import { toast } from 'sonner';
