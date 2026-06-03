@@ -5,6 +5,7 @@ import PlayerBar from './PlayerBar';
 import ChooseFaction from '@/components/auth/ChooseFaction';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import ProfileMenu from './ProfileMenu';
 
 export default function GameLayout() {
   const queryClient = useQueryClient();
@@ -94,14 +95,15 @@ export default function GameLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <PlayerBar profile={activeProfile} isLoading={isLoading} />
+  <div className="min-h-screen bg-background flex flex-col">
+    <ProfileMenu profile={activeProfile} />
 
-      <main className="flex-1 pb-20 overflow-auto">
-        <Outlet context={{ profile: activeProfile }} />
-      </main>
+    <PlayerBar profile={activeProfile} isLoading={isLoading} />
 
-      <NavBar />
-    </div>
-  );
-}
+    <main className="flex-1 pb-20 overflow-auto">
+      <Outlet context={{ profile: activeProfile }} />
+    </main>
+
+    <NavBar />
+  </div>
+);

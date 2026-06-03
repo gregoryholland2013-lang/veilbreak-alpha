@@ -21,8 +21,9 @@ export default function ProfileMenu({ profile }) {
       }
 
       queryClient.clear();
-      toast.success('Logged out');
-      setOpen(false);
+
+      // Force AuthGate to re-check session and show login screen.
+      window.location.href = '/';
     } catch (error) {
       console.error(error);
       toast.error(error.message || 'Could not log out');
@@ -36,13 +37,14 @@ export default function ProfileMenu({ profile }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="fixed top-3 left-3 z-50 w-10 h-10 rounded-xl border border-primary/30 bg-background/70 backdrop-blur-md flex items-center justify-center hover:bg-primary/10 transition-all"
+        className="fixed top-3 left-3 z-[90] w-10 h-10 rounded-xl border border-primary/30 bg-background/80 backdrop-blur-md flex items-center justify-center hover:bg-primary/10 transition-all"
+        aria-label="Open profile menu"
       >
         <User className="w-5 h-5 text-primary" />
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-[100] bg-background/70 backdrop-blur-sm flex items-center justify-center px-4">
+        <div className="fixed inset-0 z-[200] bg-background/75 backdrop-blur-sm flex items-center justify-center px-4">
           <div className="w-full max-w-sm rounded-2xl border border-primary/30 bg-card shadow-2xl overflow-hidden">
             <div className="flex items-center justify-between p-4 border-b border-border">
               <div>
@@ -58,6 +60,7 @@ export default function ProfileMenu({ profile }) {
                 type="button"
                 onClick={() => setOpen(false)}
                 className="w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center"
+                aria-label="Close profile menu"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -71,6 +74,7 @@ export default function ProfileMenu({ profile }) {
 
                 <p className="text-xs text-muted-foreground">
                   Level {profile?.level || 1}
+                  {profile?.faction ? ` · ${profile.faction}` : ''}
                 </p>
 
                 {profile?.email && (
