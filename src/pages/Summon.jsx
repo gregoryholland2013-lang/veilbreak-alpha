@@ -138,6 +138,15 @@ export default function Summon() {
           locked: false,
         });
 
+        await supabase.rpc('record_card_collection_pull', {
+          p_card_id: card.id,
+        });
+
+        pulled.push({
+          card,
+          playerCard,
+        });
+
         pulled.push({
           card,
           playerCard,

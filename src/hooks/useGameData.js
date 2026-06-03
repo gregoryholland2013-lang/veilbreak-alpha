@@ -243,3 +243,29 @@ export function useUpdatePlayerCard() {
     },
   });
 }
+
+export function useCardCollection() {
+  return useQuery({
+    queryKey: ['cardCollection'],
+    queryFn: async () => {
+      const user = await getAuthUser();
+
+      if (!user) {
+        return [];
+      }
+
+      const { data, error } = await supabase
+        .from('card_collection')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('first_pulled_at', { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
+      return data || [];
+    },
+    initialData: [],
+  });
+}

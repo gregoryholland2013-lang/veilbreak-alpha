@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Trash2, Check } from 'lucide-react';
+import { Plus, Trash2, Check, Edit3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useCards, usePlayerCards, useDecks } from '@/hooks/useGameData';
@@ -18,17 +18,15 @@ async function getAuthUser() {
     error,
   } = await supabase.auth.getUser();
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 
   return user;
 }
 
 export default function DeckBuilder() {
-  const { data: cards = [] } = useCards();
-  const { data: playerCards = [] } = usePlayerCards();
-  const { data: decks = [] } = useDecks();
+  const { data: cards = [], isLoading: cardsLoading } = useCards();
+  const { data: playerCards = [], isLoading: playerCardsLoading } = usePlayerCards();
+  const { data: decks = [], isLoading: decksLoading } = useDecks();
 
   const queryClient = useQueryClient();
 
@@ -98,7 +96,7 @@ export default function DeckBuilder() {
       const now = new Date().toISOString();
 
       if (editingDeckId) {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('decks')
           .update({
             name: trimmedName,
@@ -106,32 +104,40 @@ export default function DeckBuilder() {
             updated_at: now,
           })
           .eq('id', editingDeckId)
-          .eq('user_id', user.id);
+          .eq('user_id', user.id)
+          .select()
+          .single();
 
-        if (error) {
-          throw error;
-        }
+        if (error) throw error;
 
-        toast.success('Deck updated!');
+        toast.success(`${data.name} updated!`);
       } else {
-        const { error } = await supabase.from('decks').insert({
-          id: user.id,
-          owner_email: user.email,
-          name: trimmedName,
-          card_ids: selectedIds,
-          is_active: false,
-          created_at: now,
-          updated_at: now,
-        });
+        const shouldBeActive = decks.length === 0;
 
-        if (error) {
-          throw error;
-        }
+        const { data, error } = await supabase
+          .from('decks')
+          .insert({
+            user_id: user.id,
+            owner_email: user.email,
+            name: trimmedName,
+            card_ids: selectedIds,
+            is_active: shouldBeActive,
+            created_at: now,
+            updated_at: now,
+          })
+          .select()
+          .single();
 
-        toast.success('Deck created!');
+        if (error) throw error;
+
+        toast.success(
+          shouldBeActive
+            ? `${data.name} created and set active!`
+            : `${data.name} created!`
+        );
       }
 
-      queryClient.invalidateQueries({ queryKey: ['decks'] });
+      await queryClient.invalidateQueries({ queryKey: ['decks'] });
       resetForm();
     } catch (error) {
       console.error(error);
@@ -152,9 +158,6 @@ export default function DeckBuilder() {
 
       const now = new Date().toISOString();
 
-      /**
-       * Turn off all of this user's decks first.
-       */
       const { error: deactivateError } = await supabase
         .from('decks')
         .update({
@@ -163,13 +166,8 @@ export default function DeckBuilder() {
         })
         .eq('user_id', user.id);
 
-      if (deactivateError) {
-        throw deactivateError;
-      }
+      if (deactivateError) throw deactivateError;
 
-      /**
-       * Then activate the selected deck.
-       */
       const { error: activateError } = await supabase
         .from('decks')
         .update({
@@ -179,11 +177,9 @@ export default function DeckBuilder() {
         .eq('id', deck.id)
         .eq('user_id', user.id);
 
-      if (activateError) {
-        throw activateError;
-      }
+      if (activateError) throw activateError;
 
-      queryClient.invalidateQueries({ queryKey: ['decks'] });
+      await queryClient.invalidateQueries({ queryKey: ['decks'] });
 
       toast.success(`${deck.name} is now active!`);
     } catch (error) {
@@ -192,7 +188,7 @@ export default function DeckBuilder() {
     }
   };
 
-  const deleteDeck = async (id) => {
+  const deleteDeck = async (deck) => {
     try {
       const user = await getAuthUser();
 
@@ -204,16 +200,14 @@ export default function DeckBuilder() {
       const { error } = await supabase
         .from('decks')
         .delete()
-        .eq('id', id)
+        .eq('id', deck.id)
         .eq('user_id', user.id);
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
-      queryClient.invalidateQueries({ queryKey: ['decks'] });
+      await queryClient.invalidateQueries({ queryKey: ['decks'] });
 
-      if (editingDeckId === id) {
+      if (editingDeckId === deck.id) {
         resetForm();
       }
 
@@ -230,11 +224,25 @@ export default function DeckBuilder() {
     setSelectedIds(deck.card_ids || []);
   };
 
+  const isLoading = cardsLoading || playerCardsLoading || decksLoading;
+
   return (
     <div className="max-w-lg mx-auto space-y-5">
       <PageHeader title="Deck Builder" />
 
       <div className="px-4 space-y-5">
+        {isLoading && (
+          <div className="rounded-xl border border-border bg-card p-4 text-center text-sm text-muted-foreground">
+            Loading deck builder…
+          </div>
+        )}
+
+        {!isLoading && enriched.length === 0 && (
+          <div className="rounded-xl border border-border bg-card p-5 text-center text-sm text-muted-foreground">
+            No cards available. Summon cards first.
+          </div>
+        )}
+
         {/* Deck Form */}
         <div className="bg-card rounded-xl border border-border p-4 space-y-3">
           <Input
@@ -275,7 +283,7 @@ export default function DeckBuilder() {
 
           <Button
             onClick={saveDeck}
-            disabled={saving}
+            disabled={saving || selectedIds.length === 0}
             className="w-full gap-2"
           >
             <Plus className="w-4 h-4" />
@@ -314,7 +322,7 @@ export default function DeckBuilder() {
                 />
 
                 {selectedIds.includes(playerCard.id) && (
-                  <div className="absolute inset-0 bg-primary/20 rounded-xl border-2 border-primary flex items-center justify-center">
+                  <div className="absolute inset-0 bg-primary/20 rounded-xl border-2 border-primary flex items-center justify-center pointer-events-none">
                     <Check className="w-6 h-6 text-primary" />
                   </div>
                 )}
@@ -324,69 +332,68 @@ export default function DeckBuilder() {
         </div>
 
         {/* Saved Decks */}
-        {decks.length > 0 && (
-          <div className="space-y-3">
-            <h2 className="text-sm font-semibold">Saved Decks</h2>
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold">Saved Decks</h2>
 
-            {decks.map((deck) => (
-              <div
-                key={deck.id}
-                className={`bg-card rounded-xl border p-3 ${
-                  deck.is_active ? 'border-primary glow-gold' : 'border-border'
-                }`}
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <div>
-                    <p className="font-display font-bold text-sm">
-                      {deck.name}
-                    </p>
+          {decks.length === 0 && (
+            <div className="rounded-xl border border-border bg-card p-4 text-center text-sm text-muted-foreground">
+              No saved decks yet.
+            </div>
+          )}
 
-                    <p className="text-xs text-muted-foreground">
-                      {deck.card_ids?.length || 0} cards
-                    </p>
-                  </div>
+          {decks.map((deck) => (
+            <div
+              key={deck.id}
+              className={`bg-card rounded-xl border p-3 ${
+                deck.is_active ? 'border-primary glow-gold' : 'border-border'
+              }`}
+            >
+              <div className="flex justify-between items-center gap-3">
+                <div className="min-w-0">
+                  <p className="font-display font-bold text-sm truncate">
+                    {deck.name}
+                  </p>
 
-                  <div className="flex gap-1.5">
-                    {!deck.is_active && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setActive(deck)}
-                        className="text-xs h-7"
-                      >
-                        Set Active
-                      </Button>
-                    )}
+                  <p className="text-xs text-muted-foreground">
+                    {deck.card_ids?.length || 0} cards
+                    {deck.is_active ? ' · Active' : ''}
+                  </p>
+                </div>
 
-                    {deck.is_active && (
-                      <span className="text-xs text-primary font-semibold px-2 py-1">
-                        ⚔️ Active
-                      </span>
-                    )}
-
+                <div className="flex gap-1.5 flex-shrink-0">
+                  {!deck.is_active && (
                     <Button
                       size="sm"
-                      variant="ghost"
-                      onClick={() => editDeck(deck)}
-                      className="h-7 text-xs"
+                      variant="outline"
+                      onClick={() => setActive(deck)}
+                      className="text-xs h-7"
                     >
-                      Edit
+                      Set Active
                     </Button>
+                  )}
 
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => deleteDeck(deck.id)}
-                      className="h-7 text-destructive"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
-                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => editDeck(deck)}
+                    className="h-7 text-xs gap-1"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => deleteDeck(deck)}
+                    className="h-7 text-destructive"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
