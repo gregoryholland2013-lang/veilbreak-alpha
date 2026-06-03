@@ -55,7 +55,12 @@ export default function Summon() {
 
   const activeCards = useMemo(() => {
     return (cards || []).filter((card) => {
-      return card.is_active !== false && card.name;
+    return (
+      card.is_active !== false &&
+      card.name &&
+      card.evolution_stage === 'base' &&
+      (card.evo_form === 'base' || !card.evo_form)
+    );
     });
   }, [cards]);
 
@@ -136,6 +141,10 @@ export default function Summon() {
           experience: 0,
           evolution_stage: card.evo_form || 'base',
           skill_level: card.skill_name ? 1 : 0,
+          attack: card.base_attack || 100,
+          defense: card.base_defense || 100,
+          hp: card.base_hp || 300,
+          max_hp: card.base_hp || 300,
           locked: false,
         });
 
