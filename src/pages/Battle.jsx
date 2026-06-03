@@ -1,6 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Zap, RotateCcw, Trophy } from 'lucide-react';
+import {
+  Zap,
+  Trophy,
+  Swords,
+  Shield,
+  Heart,
+  RotateCcw,
+  Target,
+} from 'lucide-react';
 import PageHeader from '@/components/game/PageHeader';
 import { Button } from '@/components/ui/button';
 import {
@@ -8,14 +16,171 @@ import {
   usePlayerCards,
   useDecks,
   useProfile,
-  useUpdateProfile,
 } from '@/hooks/useGameData';
 import { supabase } from '@/lib/supabaseClient';
 import { toast } from 'sonner';
-import Leaderboard from '@/components/battle/Leaderboard';
-import BattleScreen from '@/components/battle/BattleScreen';
 
-const STAMINA_COST = 10;
+const ATTACK_COST = 10;
+
+const DEFAULT_NO_DECK_STATS = {
+  attack: 50,
+  defense: 50,
+  hp: 250,
+  cardCount: 0,
+  hasDeck: false,
+};
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function rollMultiplier() {
+  return 0.9 + Math.random() * 0.2;
+}
+
+function statRange(value) {
+  return {
+    low: Math.floor((value || 0) * 0.9),
+    high: Math.ceil((value || 0) * 1.1),
+  };
+}
+
+function formatRange(value) {
+  const range = statRange(value);
+
+  return `${range.low.toLocaleString()}–${range.high.toLocaleString()}`;
+}
+
+function calcDeckStats(deck, playerCardList = [], masterCards = []) {
+  if (!deck || !Array.isArray(deck.card_ids) || deck.card_ids.length === 0) {
+    return {
+      ...DEFAULT_NO_DECK_STATS,
+      power: Math.round(
+        DEFAULT_NO_DECK_STATS.attack +
+          DEFAULT_NO_DECK_STATS.defense +
+          DEFAULT_NO_DECK_STATS.hp * 0.25
+      ),
+    };
+  }
+
+  const deckCards = deck.card_ids
+    .map((pcId) => {
+      const pc = playerCardList.find((p) => p.id === pcId);
+
+      if (!pc) return null;
+
+      const card = masterCards.find((c) => c.id === pc.card_id);
+
+      return {
+        playerCard: pc,
+        card,
+      };
+    })
+    .filter(Boolean);
+
+  if (deckCards.length === 0) {
+    return {
+      ...DEFAULT_NO_DECK_STATS,
+      power: Math.round(
+        DEFAULT_NO_DECK_STATS.attack +
+          DEFAULT_NO_DECK_STATS.defense +
+          DEFAULT_NO_DECK_STATS.hp * 0.25
+      ),
+    };
+  }
+
+  const attack = deckCards.reduce((sum, item) => {
+    const pc = item.playerCard;
+    const card = item.card;
+
+    return sum + (pc.attack ?? card?.base_attack ?? 0);
+  }, 0);
+
+  const defense = deckCards.reduce((sum, item) => {
+    const pc = item.playerCard;
+    const card = item.card;
+
+    return sum + (pc.defense ?? card?.base_defense ?? 0);
+  }, 0);
+
+  const hp = deckCards.reduce((sum, item) => {
+    const pc = item.playerCard;
+    const card = item.card;
+
+    return sum + (pc.hp ?? pc.max_hp ?? card?.base_hp ?? 0);
+  }, 0);
+
+  const power = Math.round(attack + defense + hp * 0.25);
+
+  return {
+    attack,
+    defense,
+    hp,
+    power,
+    cardCount: deckCards.length,
+    hasDeck: true,
+  };
+}
+
+function estimateAttackerWinPoints(attackerStats, defenderStats) {
+  const defenderStrengthPoints = Math.round((defenderStats.power || 0) / 350);
+
+  const noDeckPenalty = defenderStats.hasDeck ? 0 : -4;
+
+  const underdogBonus =
+    attackerStats.power < defenderStats.power
+      ? Math.round((defenderStats.power - attackerStats.power) / 250)
+      : 0;
+
+  return clamp(2 + defenderStrengthPoints + underdogBonus + noDeckPenalty, 1, 75);
+}
+
+function estimateDefenderWinPoints(attackerStats, defenderStats) {
+  const attackerStrengthPoints = Math.round((attackerStats.power || 0) / 300);
+
+  const defenderUnderdogBonus =
+    defenderStats.power < attackerStats.power
+      ? Math.round((attackerStats.power - defenderStats.power) / 250)
+      : 0;
+
+  return clamp(4 + attackerStrengthPoints + defenderUnderdogBonus, 3, 90);
+}
+
+function resolveBattle(attackerStats, defenderStats) {
+  const attackerBattlePower =
+    (attackerStats.attack || 0) * rollMultiplier() +
+    (attackerStats.hp || 0) * 0.25;
+
+  const defenderBattlePower =
+    (defenderStats.defense || 0) * rollMultiplier() +
+    (defenderStats.hp || 0) * 0.25;
+
+  const attackerWon = attackerBattlePower >= defenderBattlePower;
+
+  const attackerPoints = attackerWon
+    ? estimateAttackerWinPoints(attackerStats, defenderStats)
+    : 0;
+
+  const defenderPoints = attackerWon
+    ? 0
+    : estimateDefenderWinPoints(attackerStats, defenderStats);
+
+  const goldReward = attackerWon
+    ? clamp(Math.round(25 + defenderStats.power / 60), 25, 250)
+    : 5;
+
+  const xpReward = attackerWon ? 35 : 10;
+
+  return {
+    attackerWon,
+    attackerBattlePower: Math.round(attackerBattlePower),
+    defenderBattlePower: Math.round(defenderBattlePower),
+    attackerPoints,
+    defenderPoints,
+    goldReward,
+    xpReward,
+  };
+}
 
 export default function Battle() {
   const { data: cards = [] } = useCards();
@@ -23,17 +188,11 @@ export default function Battle() {
   const { data: decks = [] } = useDecks();
   const { data: profile } = useProfile();
 
-  const updateProfile = useUpdateProfile();
   const queryClient = useQueryClient();
 
-  const [view, setView] = useState('leaderboard'); // leaderboard | battle | result
-  const [currentOpponent, setCurrentOpponent] = useState(null);
-  const [lastResult, setLastResult] = useState(null); // { won, goldReward, xpReward }
+  const [result, setResult] = useState(null);
+  const [attackingId, setAttackingId] = useState(null);
 
-  /**
-   * Supabase Realtime
-   * Keeps PvP leaderboard, deck power, and card power reactive.
-   */
   useEffect(() => {
     const channel = supabase
       .channel('battle-page-realtime')
@@ -86,8 +245,8 @@ export default function Battle() {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .order('wins', { ascending: false })
-        .limit(50);
+        .order('arena_points', { ascending: false })
+        .limit(100);
 
       if (error) {
         throw error;
@@ -103,6 +262,7 @@ export default function Battle() {
       const { data, error } = await supabase
         .from('decks')
         .select('*')
+        .eq('is_active', true)
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -129,268 +289,349 @@ export default function Battle() {
     },
   });
 
-  const activeDeck = useMemo(() => {
-    return decks.find((d) => d.is_active);
+  const myActiveDeck = useMemo(() => {
+    return decks.find((d) => d.is_active) || null;
   }, [decks]);
 
-  const myDeckCards = useMemo(() => {
-    if (!activeDeck) return [];
+  const myDeckStats = useMemo(() => {
+    return calcDeckStats(myActiveDeck, playerCards, cards);
+  }, [myActiveDeck, playerCards, cards]);
 
-    return (activeDeck.card_ids || [])
-      .map((pcId) => {
-        const pc = playerCards.find((p) => p.id === pcId);
-        if (!pc) return null;
-
-        const card = cards.find((c) => c.id === pc.card_id);
-        return card ? { card, playerCard: pc } : null;
-      })
-      .filter(Boolean);
-  }, [activeDeck, playerCards, cards]);
-
-  const calcPower = (deckCardIds = [], playerCardList = [], masterCards = []) => {
-    return playerCardList
-      .filter((pc) => deckCardIds.includes(pc.id))
-      .reduce((sum, pc) => {
-        const card = masterCards.find((c) => c.id === pc.card_id);
-
-        if (!card) return sum;
-
-        const level = pc.level || 1;
-        const mult = 1 + (level - 1) * 0.1;
-
-        return (
-          sum +
-          ((card.base_attack || 0) * mult +
-            (card.base_defense || 0) * mult +
-            (card.base_hp || 0) * mult)
-        );
-      }, 0);
-  };
-
-  const myDeckPower = useMemo(() => {
-    if (!activeDeck) return 0;
-    return calcPower(activeDeck.card_ids || [], playerCards, cards);
-  }, [activeDeck, playerCards, cards]);
-
-  const opponents = useMemo(() => {
+  const arenaPlayers = useMemo(() => {
     return allProfiles
       .filter((p) => p.id !== profile?.id)
       .map((p) => {
-        /**
-         * Supabase version uses user_id instead of Base44 created_by.
-         */
-        const theirActiveDeck = allDecks.find(
-          (d) => d.user_id === p.user_id && d.is_active
+        const activeDeck = allDecks.find(
+          (deck) => deck.user_id === p.id && deck.is_active
         );
 
-        const theirCards = allPlayerCards.filter(
-          (pc) => pc.user_id === p.user_id
+        const theirCards = allPlayerCards.filter((pc) => pc.user_id === p.id);
+
+        const deckStats = calcDeckStats(activeDeck, theirCards, cards);
+
+        const possibleWinPoints = estimateAttackerWinPoints(
+          myDeckStats,
+          deckStats
         );
-
-        const realPower = theirActiveDeck
-          ? Math.round(
-              calcPower(theirActiveDeck.card_ids || [], theirCards, cards)
-            )
-          : 0;
-
-        const deckPower =
-          realPower > 0
-            ? realPower
-            : Math.round((p.level || 1) * 120 + (p.wins || 0) * 8);
 
         return {
           ...p,
-          deckPower,
-          activeDeck: theirActiveDeck,
+          activeDeck,
+          deckStats,
+          possibleWinPoints,
         };
       })
-      .sort((a, b) => (b.wins || 0) - (a.wins || 0));
-  }, [allProfiles, allDecks, allPlayerCards, cards, profile]);
+      .sort((a, b) => {
+        return (b.arena_points || 0) - (a.arena_points || 0);
+      });
+  }, [allProfiles, allDecks, allPlayerCards, cards, profile, myDeckStats]);
 
-  const handleChallenge = (opponent) => {
-    if (!activeDeck || myDeckCards.length === 0) {
-      toast.error('Set an active deck first!');
+  const attackPlayer = async (opponent) => {
+    if (!profile) {
+      toast.error('Profile has not loaded yet');
       return;
     }
 
-    if (!profile || profile.stamina < STAMINA_COST) {
-      toast.error('Not enough stamina!');
+    if ((profile.attack_energy || 0) < ATTACK_COST) {
+      toast.error('Not enough attack energy!');
       return;
     }
 
-    setCurrentOpponent(opponent);
-    setLastResult(null);
-    setView('battle');
-  };
+    setAttackingId(opponent.id);
+    setResult(null);
 
-  const handleBattleFinish = async (won) => {
-    if (!profile) return;
+    try {
+      const battleResult = resolveBattle(myDeckStats, opponent.deckStats);
 
-    const goldReward = won ? Math.round(80 + Math.random() * 120) : 15;
-    const xpReward = won ? 40 : 10;
+      const { data, error } = await supabase.rpc('apply_arena_battle_result', {
+        p_defender_id: opponent.id,
+        p_attacker_won: battleResult.attackerWon,
+        p_attacker_points: battleResult.attackerPoints,
+        p_defender_points: battleResult.defenderPoints,
+        p_gold_reward: battleResult.goldReward,
+        p_xp_reward: battleResult.xpReward,
+        p_attack_cost: ATTACK_COST,
+      });
 
-    setLastResult({ won, goldReward, xpReward });
+      if (error) {
+        throw error;
+      }
 
-    const newXp = (profile.experience || 0) + xpReward;
-    const xpForLevel = (profile.level || 1) * 100;
-    const levelUp = newXp >= xpForLevel;
+      setResult({
+        opponent,
+        ...battleResult,
+      });
 
-    await updateProfile.mutateAsync({
-      id: profile.id,
-      data: {
-        stamina: Math.max(0, (profile.stamina || 0) - STAMINA_COST),
-        gold: (profile.gold || 0) + goldReward,
-        experience: levelUp ? newXp - xpForLevel : newXp,
-        level: levelUp ? (profile.level || 1) + 1 : profile.level || 1,
-        wins: won ? (profile.wins || 0) + 1 : profile.wins || 0,
-        losses: won ? profile.losses || 0 : (profile.losses || 0) + 1,
-      },
-    });
+      await queryClient.invalidateQueries({ queryKey: ['playerProfile'] });
+      await queryClient.invalidateQueries({ queryKey: ['allProfiles'] });
 
-    queryClient.invalidateQueries({ queryKey: ['allProfiles'] });
-    queryClient.invalidateQueries({ queryKey: ['playerProfile'] });
+      toast.success(
+        battleResult.attackerWon
+          ? `Victory! +${battleResult.attackerPoints} Arena Points`
+          : `Defeat. Defender gained +${battleResult.defenderPoints} Arena Points`
+      );
 
-    if (levelUp) {
-      toast.success('🎉 Level Up!');
+      return data;
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Battle failed');
+    } finally {
+      setAttackingId(null);
     }
   };
-
-  const reset = () => {
-    setView('leaderboard');
-    setCurrentOpponent(null);
-    setLastResult(null);
-  };
-
-  if (view === 'battle' && currentOpponent) {
-    return (
-      <div className="max-w-lg mx-auto">
-        <PageHeader
-          title={`vs ${
-            currentOpponent.display_name ||
-            currentOpponent.username ||
-            currentOpponent.email ||
-            'Opponent'
-          }`}
-        />
-
-        <div className="px-4 py-4 space-y-4">
-          <BattleScreen
-            myDeckCards={myDeckCards}
-            opponent={currentOpponent}
-            onFinish={handleBattleFinish}
-          />
-
-          {lastResult && (
-            <div className="space-y-3">
-              <div
-                className={`rounded-xl border p-4 flex items-center gap-4 ${
-                  lastResult.won
-                    ? 'border-primary/40 bg-primary/5'
-                    : 'border-border bg-card'
-                }`}
-              >
-                <Trophy
-                  className={`w-8 h-8 flex-shrink-0 ${
-                    lastResult.won
-                      ? 'text-primary'
-                      : 'text-muted-foreground'
-                  }`}
-                />
-
-                <div className="flex-1">
-                  <p className="font-display font-bold text-sm">
-                    {lastResult.won ? 'Rewards Earned' : 'Consolation Prize'}
-                  </p>
-
-                  <p className="text-xs text-yellow-400">
-                    +{lastResult.goldReward} Gold ·{' '}
-                    <span className="text-blue-400">
-                      +{lastResult.xpReward} XP
-                    </span>
-                  </p>
-                </div>
-              </div>
-
-              <Button onClick={reset} className="w-full gap-2" variant="outline">
-                <RotateCcw className="w-4 h-4" /> Back to Leaderboard
-              </Button>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="max-w-lg mx-auto space-y-4">
-      <PageHeader title="PvP Arena" />
+      <PageHeader title="Open Arena" />
 
       <div className="px-4 space-y-4">
-        <div className="bg-card rounded-xl border border-border p-3 flex items-center gap-3">
-          <div className="flex-1">
-            <p className="text-xs text-muted-foreground">Your Active Deck</p>
+        <div className="bg-card rounded-xl border border-border p-4 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs text-muted-foreground">Your Battle Setup</p>
 
-            <p className="font-display font-bold text-sm">
-              {activeDeck?.name || '— No deck set —'}
-            </p>
-
-            {myDeckPower > 0 && (
-              <p className="text-[10px] text-muted-foreground">
-                Power: {Math.round(myDeckPower)}
+              <p className="font-display font-bold text-sm">
+                {myActiveDeck?.name || 'No active deck'}
               </p>
-            )}
+
+              <p className="text-[10px] text-muted-foreground">
+                {myDeckStats.hasDeck
+                  ? `${myDeckStats.cardCount} cards ready`
+                  : 'You can attack, but your default power is very low.'}
+              </p>
+            </div>
+
+            <div className="text-right">
+              <p className="text-xs flex items-center gap-1 justify-end text-muted-foreground">
+                <Zap className="w-3 h-3 text-green-400" />
+                {profile?.attack_energy ?? '—'} ATK
+              </p>
+
+              <p className="text-[10px] text-muted-foreground">
+                {ATTACK_COST} per attack
+              </p>
+            </div>
           </div>
 
-          <div className="text-right">
-            <p className="text-xs flex items-center gap-1 justify-end text-muted-foreground">
-              <Zap className="w-3 h-3 text-green-400" />{' '}
-              {profile?.stamina ?? '—'} stamina
-            </p>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-lg border border-border bg-background/40 p-2">
+              <Swords className="w-4 h-4 text-red-400 mx-auto mb-1" />
+              <p className="text-xs font-bold">
+                {myDeckStats.attack.toLocaleString()}
+              </p>
+              <p className="text-[9px] text-muted-foreground">ATK</p>
+            </div>
 
-            <p className="text-[10px] text-muted-foreground">
-              {STAMINA_COST} per battle
-            </p>
+            <div className="rounded-lg border border-border bg-background/40 p-2">
+              <Shield className="w-4 h-4 text-blue-400 mx-auto mb-1" />
+              <p className="text-xs font-bold">
+                {myDeckStats.defense.toLocaleString()}
+              </p>
+              <p className="text-[9px] text-muted-foreground">DEF</p>
+            </div>
+
+            <div className="rounded-lg border border-border bg-background/40 p-2">
+              <Heart className="w-4 h-4 text-green-400 mx-auto mb-1" />
+              <p className="text-xs font-bold">
+                {myDeckStats.hp.toLocaleString()}
+              </p>
+              <p className="text-[9px] text-muted-foreground">HP</p>
+            </div>
           </div>
         </div>
 
         {profile && (
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-card rounded-lg border border-border p-2.5 text-center">
+          <div className="grid grid-cols-4 gap-2">
+            <div className="bg-card rounded-lg border border-border p-2 text-center">
+              <p className="text-lg font-bold font-display text-primary">
+                {profile.arena_points || 0}
+              </p>
+              <p className="text-[9px] text-muted-foreground">Arena Pts</p>
+            </div>
+
+            <div className="bg-card rounded-lg border border-border p-2 text-center">
               <p className="text-lg font-bold font-display text-green-400">
                 {profile.wins || 0}
               </p>
-              <p className="text-[10px] text-muted-foreground">Wins</p>
+              <p className="text-[9px] text-muted-foreground">Atk Wins</p>
             </div>
 
-            <div className="bg-card rounded-lg border border-border p-2.5 text-center">
+            <div className="bg-card rounded-lg border border-border p-2 text-center">
               <p className="text-lg font-bold font-display text-red-400">
                 {profile.losses || 0}
               </p>
-              <p className="text-[10px] text-muted-foreground">Losses</p>
+              <p className="text-[9px] text-muted-foreground">Atk Loss</p>
             </div>
 
-            <div className="bg-card rounded-lg border border-border p-2.5 text-center">
-              <p className="text-lg font-bold font-display text-primary">
-                {(profile.wins || 0) + (profile.losses || 0) > 0
-                  ? Math.round(
-                      ((profile.wins || 0) /
-                        ((profile.wins || 0) + (profile.losses || 0))) *
-                        100
-                    )
-                  : 0}
-                %
+            <div className="bg-card rounded-lg border border-border p-2 text-center">
+              <p className="text-lg font-bold font-display text-blue-400">
+                {profile.defense_wins || 0}
               </p>
-              <p className="text-[10px] text-muted-foreground">Win Rate</p>
+              <p className="text-[9px] text-muted-foreground">Def Wins</p>
             </div>
           </div>
         )}
 
-        <Leaderboard
-          opponents={opponents}
-          myProfile={profile}
-          onChallenge={handleChallenge}
-          loading={loadingProfiles}
-        />
+        {result && (
+          <div
+            className={`rounded-xl border p-4 space-y-3 ${
+              result.attackerWon
+                ? 'border-primary/50 bg-primary/5'
+                : 'border-red-500/40 bg-red-500/5'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Trophy
+                className={`w-8 h-8 ${
+                  result.attackerWon ? 'text-primary' : 'text-red-400'
+                }`}
+              />
+
+              <div>
+                <p className="font-display font-bold text-sm">
+                  {result.attackerWon ? 'Victory!' : 'Defeat'}
+                </p>
+
+                <p className="text-xs text-muted-foreground">
+                  vs{' '}
+                  {result.opponent.display_name ||
+                    result.opponent.email ||
+                    'Opponent'}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-lg bg-background/40 border border-border p-2 text-center">
+                <p className="text-muted-foreground">Your Battle Power</p>
+                <p className="font-bold">
+                  {result.attackerBattlePower.toLocaleString()}
+                </p>
+              </div>
+
+              <div className="rounded-lg bg-background/40 border border-border p-2 text-center">
+                <p className="text-muted-foreground">Defender Power</p>
+                <p className="font-bold">
+                  {result.defenderBattlePower.toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-center text-muted-foreground">
+              {result.attackerWon
+                ? `You gained +${result.attackerPoints} arena points, +${result.goldReward} gold, and +${result.xpReward} XP.`
+                : `The defender gained +${result.defenderPoints} arena points. You gained +${result.xpReward} XP.`}
+            </p>
+
+            <Button
+              onClick={() => setResult(null)}
+              variant="outline"
+              className="w-full gap-2"
+            >
+              <RotateCcw className="w-4 h-4" />
+              Continue Battling
+            </Button>
+          </div>
+        )}
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="font-display font-bold text-primary">Arena Targets</p>
+
+            <p className="text-[10px] text-muted-foreground">
+              {loadingProfiles ? 'Loading…' : `${arenaPlayers.length} players`}
+            </p>
+          </div>
+
+          {arenaPlayers.map((opponent, index) => {
+            const stats = opponent.deckStats;
+            const hasDeck = stats.hasDeck;
+
+            return (
+              <div
+                key={opponent.id}
+                className="rounded-xl border border-border bg-card p-4 space-y-3"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-display font-bold text-sm truncate">
+                      #{index + 1}{' '}
+                      {opponent.display_name ||
+                        opponent.email ||
+                        'Unknown Player'}
+                    </p>
+
+                    <p className="text-[10px] text-muted-foreground">
+                      Lv.{opponent.level || 1}
+                      {opponent.faction ? ` · ${opponent.faction}` : ''}
+                      {' · '}
+                      {(opponent.arena_points || 0).toLocaleString()} pts
+                    </p>
+
+                    <p className="text-[10px] text-muted-foreground">
+                      {hasDeck
+                        ? `${stats.cardCount} card active deck`
+                        : 'No active deck · low defense value'}
+                    </p>
+                  </div>
+
+                  <div className="text-right">
+                    <p className="text-[10px] text-muted-foreground">
+                      Possible Win
+                    </p>
+
+                    <p className="font-bold text-primary text-sm">
+                      +{opponent.possibleWinPoints} pts
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-lg bg-background/40 border border-border p-2">
+                    <Swords className="w-3.5 h-3.5 text-red-400 mx-auto mb-1" />
+                    <p className="text-[10px] font-bold">
+                      {formatRange(stats.attack)}
+                    </p>
+                    <p className="text-[9px] text-muted-foreground">ATK est.</p>
+                  </div>
+
+                  <div className="rounded-lg bg-background/40 border border-border p-2">
+                    <Shield className="w-3.5 h-3.5 text-blue-400 mx-auto mb-1" />
+                    <p className="text-[10px] font-bold">
+                      {formatRange(stats.defense)}
+                    </p>
+                    <p className="text-[9px] text-muted-foreground">DEF est.</p>
+                  </div>
+
+                  <div className="rounded-lg bg-background/40 border border-border p-2">
+                    <Heart className="w-3.5 h-3.5 text-green-400 mx-auto mb-1" />
+                    <p className="text-[10px] font-bold">
+                      {formatRange(stats.hp)}
+                    </p>
+                    <p className="text-[9px] text-muted-foreground">HP est.</p>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={() => attackPlayer(opponent)}
+                  disabled={attackingId === opponent.id}
+                  className="w-full gap-2"
+                >
+                  <Target className="w-4 h-4" />
+                  {attackingId === opponent.id
+                    ? 'Attacking…'
+                    : `Attack · ${ATTACK_COST} ATK Energy`}
+                </Button>
+              </div>
+            );
+          })}
+
+          {!loadingProfiles && arenaPlayers.length === 0 && (
+            <div className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+              No opponents yet. Invite another tester to the arena.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
