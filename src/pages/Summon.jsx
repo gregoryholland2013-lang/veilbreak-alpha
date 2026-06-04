@@ -269,31 +269,64 @@ export default function Summon() {
           </div>
         </div>
 
+        {/* Summon Buttons */}
         {!showResults && (
           <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
             <Button
               onClick={() => doSummon(1, 'gold')}
               disabled={summoning || isLoading || activeCards.length === 0}
-              className="w-full gap-2 bg-gradient-to-r from-yellow-600 to-yellow-700 hover:from-yellow-500 hover:to-yellow-600 text-white"
+              className="gap-2 bg-gradient-to-r from-yellow-600 to-yellow-700 hover:from-yellow-500 hover:to-yellow-600 text-white"
               size="lg"
             >
               <Coins className="w-5 h-5" />
-              {summoning ? 'Summoning…' : `Summon x1 — ${SUMMON_COST_GOLD} Gold`}
+              {summoning ? 'Summoning…' : `x1 · ${SUMMON_COST_GOLD} Gold`}
             </Button>
 
             <Button
-              onClick={() => doSummon(3, 'gems')}
+              onClick={() => doSummon(10, 'gold')}
               disabled={summoning || isLoading || activeCards.length === 0}
-              className="w-full gap-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white"
+              className="gap-2 bg-gradient-to-r from-yellow-700 to-amber-800 hover:from-yellow-600 hover:to-amber-700 text-white"
               size="lg"
             >
-              <Gem className="w-5 h-5" />
-              {summoning
-                ? 'Summoning…'
-                : `Summon x3 — ${SUMMON_COST_GEMS * 3} Gems`}
+              <Coins className="w-5 h-5" />
+              {summoning ? 'Summoning…' : `x10 · ${SUMMON_COST_GOLD * 10} Gold`}
             </Button>
           </div>
-        )}
+
+          <div className="grid grid-cols-3 gap-3">
+            <Button
+              onClick={() => doSummon(3, 'gems')}
+              disabled={summoning || isLoading || activeCards.length === 0}
+              className="gap-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white"
+              size="lg"
+            >
+              <Gem className="w-4 h-4" />
+              {summoning ? 'Summoning…' : `x3 · ${SUMMON_COST_GEMS * 3}`}
+            </Button>
+
+            <Button
+              onClick={() => doSummon(10, 'gems')}
+              disabled={summoning || isLoading || activeCards.length === 0}
+              className="gap-2 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 hover:to-blue-600 text-white"
+              size="lg"
+            >
+              <Gem className="w-4 h-4" />
+              {summoning ? 'Summoning…' : `x10 · ${SUMMON_COST_GEMS * 10}`}
+            </Button>
+
+            <Button
+              onClick={() => doSummon(25, 'gems')}
+              disabled={summoning || isLoading || activeCards.length === 0}
+              className="gap-2 bg-gradient-to-r from-purple-600 to-blue-800 hover:from-purple-500 hover:to-blue-700 text-white"
+              size="lg"
+            >
+              <Gem className="w-4 h-4" />
+              {summoning ? 'Summoning…' : `x25 · ${SUMMON_COST_GEMS * 25}`}
+            </Button>
+          </div>
+        </div>
+      )}
 
         <AnimatePresence>
           {showResults && revealedCards.length > 0 && (
