@@ -15,6 +15,9 @@ import EnhanceCardPicker from '@/components/enhance/EnhanceCardPicker';
 import FodderPicker from '@/components/enhance/FodderPicker';
 import EvolvePanel from '@/components/enhance/EvolvePanel';
 
+const BASE_MAX_LEVEL = 10;
+const FINAL_FORM_MAX_LEVEL = 20;
+
 // Card capacity per player level
 function cardCapacity(level) {
   return 50 + (level - 1) * 10;
@@ -23,6 +26,25 @@ function cardCapacity(level) {
 // XP needed to level up from currentLevel
 function xpToNextLevel(level) {
   return level * 50;
+}
+
+function isFinalForm(playerCard) {
+  const stage = String(playerCard?.evolution_stage || '').toLowerCase();
+
+  return (
+    stage === 'final' ||
+    stage === 'final_form' ||
+    stage === 'final form' ||
+    Number(playerCard?.evolve_count || 0) >= 3
+  );
+}
+
+function getCardMaxLevel(playerCard) {
+  return isFinalForm(playerCard) ? FINAL_FORM_MAX_LEVEL : BASE_MAX_LEVEL;
+}
+
+function isCardMaxed(playerCard) {
+  return Number(playerCard?.level || 1) >= getCardMaxLevel(playerCard);
 }
 
 export default function Enhance() {
@@ -55,10 +77,17 @@ export default function Enhance() {
   };
 
   // ── ENHANCE: confirm fodder sacrifice ──
-  const handleEnhanceConfirm = async (fodderIds, totalXpGain, levelsGained) => {
+  const handleEnhanceConfirm = async (fodderIds, totalXpGain) => {
     if (!selectedTarget) return;
 
     const { card, playerCard } = selectedTarget;
+    const maxLevel = getCardMaxLevel(playerCard);
+    const currentLevel = playerCard.level || 1;
+
+    if (currentLevel >= maxLevel) {
+      toast.error(`${card.name} is already MAX level (${maxLevel})`);
+      return;
+    }
 
     if (!fodderIds || fodderIds.length === 0) {
       toast.error('Select at least one fodder card');
@@ -75,18 +104,22 @@ export default function Enhance() {
     try {
       const now = new Date().toISOString();
 
-      // Compute new level + xp
       let newXp = (playerCard.experience || 0) + totalXpGain;
-      let newLevel = playerCard.level || 1;
+      let newLevel = currentLevel;
 
-      while (newXp >= xpToNextLevel(newLevel)) {
+      while (newLevel < maxLevel && newXp >= xpToNextLevel(newLevel)) {
         newXp -= xpToNextLevel(newLevel);
-        newLevel++;
+        newLevel += 1;
       }
 
-      /**
-       * Update target card.
-       */
+      // Once maxed, stop XP gain completely.
+      if (newLevel >= maxLevel) {
+        newLevel = maxLevel;
+        newXp = 0;
+      }
+
+      const levelsGained = newLevel - currentLevel;
+
       const { error: updateError } = await supabase
         .from('player_cards')
         .update({
@@ -100,9 +133,6 @@ export default function Enhance() {
         throw updateError;
       }
 
-      /**
-       * Delete fodder cards.
-       */
       const { error: deleteError } = await supabase
         .from('player_cards')
         .delete()
@@ -114,10 +144,13 @@ export default function Enhance() {
 
       queryClient.invalidateQueries({ queryKey: ['playerCards'] });
 
-      const msg =
-        levelsGained > 0
-          ? `${card.name} reached Lv.${newLevel}!`
-          : `${card.name} gained ${totalXpGain} XP!`;
+      let msg = `${card.name} gained ${totalXpGain} XP!`;
+
+      if (newLevel >= maxLevel) {
+        msg = `${card.name} reached MAX Lv.${maxLevel}!`;
+      } else if (levelsGained > 0) {
+        msg = `${card.name} reached Lv.${newLevel}!`;
+      }
 
       toast.success(`✨ ${msg}`);
       resetFlow();
@@ -150,15 +183,14 @@ export default function Enhance() {
     try {
       const now = new Date().toISOString();
       const newEvolveCount = (playerCard.evolve_count || 0) + 1;
+      const becomesFinal = newEvolveCount >= 3;
 
-      /**
-       * Update target evolved state.
-       */
       const { error: updateError } = await supabase
         .from('player_cards')
         .update({
           evolved: true,
           evolve_count: newEvolveCount,
+          evolution_stage: becomesFinal ? 'final' : playerCard.evolution_stage || 'base',
           updated_at: now,
         })
         .eq('id', playerCard.id);
@@ -167,9 +199,6 @@ export default function Enhance() {
         throw updateError;
       }
 
-      /**
-       * Delete duplicate card.
-       */
       const { error: deleteError } = await supabase
         .from('player_cards')
         .delete()
@@ -181,7 +210,12 @@ export default function Enhance() {
 
       queryClient.invalidateQueries({ queryKey: ['playerCards'] });
 
-      toast.success(`🌟 ${card.name} evolved! (${newEvolveCount}/4)`);
+      toast.success(
+        becomesFinal
+          ? `🌟 ${card.name} reached Final Form! Max level increased to ${FINAL_FORM_MAX_LEVEL}.`
+          : `🌟 ${card.name} evolved! (${newEvolveCount}/3)`
+      );
+
       resetFlow();
     } catch (error) {
       console.error(error);
@@ -194,9 +228,31 @@ export default function Enhance() {
   const handleSelectTarget = (item, mode) => {
     if (processing) return;
 
+    if (mode === 'enhance' && isCardMaxed(item.playerCard)) {
+      toast.error(
+        `${item.card.name} is already MAX level (${getCardMaxLevel(
+          item.playerCard
+        )})`
+      );
+      return;
+    }
+
     setSelectedTarget(item);
     setStep(mode === 'evolve' ? 'evolve' : 'fodder');
   };
+
+  const enhancedCardsForPicker = useMemo(() => {
+    return enrichedCards.map((item) => {
+      const maxLevel = getCardMaxLevel(item.playerCard);
+      const maxed = isCardMaxed(item.playerCard);
+
+      return {
+        ...item,
+        maxLevel,
+        maxed,
+      };
+    });
+  }, [enrichedCards]);
 
   return (
     <div className="max-w-lg mx-auto">
@@ -249,6 +305,14 @@ export default function Enhance() {
           </div>
         )}
 
+        <div className="rounded-xl border border-border bg-card p-3">
+          <p className="text-xs font-bold text-primary">Enhancement Caps</p>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Base cards max at Lv.{BASE_MAX_LEVEL}. Final Form cards max at
+            Lv.{FINAL_FORM_MAX_LEVEL}. Maxed cards no longer gain XP or stats.
+          </p>
+        </div>
+
         <AnimatePresence mode="wait">
           {step === 'pick' && (
             <motion.div
@@ -269,7 +333,7 @@ export default function Enhance() {
 
                 <TabsContent value="enhance">
                   <EnhanceCardPicker
-                    enrichedCards={enrichedCards}
+                    enrichedCards={enhancedCardsForPicker}
                     onSelect={(item) => handleSelectTarget(item, 'enhance')}
                   />
                 </TabsContent>
@@ -282,11 +346,12 @@ export default function Enhance() {
                       </h2>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         Select a card with a duplicate in your collection.
+                        Final Form cards can reach Lv.{FINAL_FORM_MAX_LEVEL}.
                       </p>
                     </div>
 
                     <EnhanceCardPicker
-                      enrichedCards={enrichedCards}
+                      enrichedCards={enhancedCardsForPicker}
                       onSelect={(item) => handleSelectTarget(item, 'evolve')}
                     />
                   </div>
@@ -303,8 +368,12 @@ export default function Enhance() {
               exit={{ opacity: 0, x: -20 }}
             >
               <FodderPicker
-                target={selectedTarget}
-                enrichedCards={enrichedCards}
+                target={{
+                  ...selectedTarget,
+                  maxLevel: getCardMaxLevel(selectedTarget.playerCard),
+                  maxed: isCardMaxed(selectedTarget.playerCard),
+                }}
+                enrichedCards={enhancedCardsForPicker}
                 onConfirm={handleEnhanceConfirm}
                 onBack={resetFlow}
                 disabled={processing}
@@ -320,8 +389,12 @@ export default function Enhance() {
               exit={{ opacity: 0, x: -20 }}
             >
               <EvolvePanel
-                target={selectedTarget}
-                enrichedCards={enrichedCards}
+                target={{
+                  ...selectedTarget,
+                  maxLevel: getCardMaxLevel(selectedTarget.playerCard),
+                  maxed: isCardMaxed(selectedTarget.playerCard),
+                }}
+                enrichedCards={enhancedCardsForPicker}
                 onEvolve={handleEvolve}
                 onBack={resetFlow}
                 disabled={processing}
