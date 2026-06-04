@@ -190,7 +190,9 @@ export default function Enhance() {
         .update({
           evolved: true,
           evolve_count: newEvolveCount,
-          evolution_stage: becomesFinal ? 'final' : playerCard.evolution_stage || 'base',
+          evolution_stage: becomesFinal 
+            ? 'final' 
+            : playerCard.evolution_stage || 'base',
           updated_at: now,
         })
         .eq('id', playerCard.id);
