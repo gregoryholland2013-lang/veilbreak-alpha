@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import BattleScreen from '@/components/battle/BattleScreen';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Zap,
@@ -34,10 +35,6 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function rollMultiplier() {
-  return 0.9 + Math.random() * 0.2;
-}
-
 function statRange(value) {
   return {
     low: Math.floor((value || 0) * 0.9),
@@ -47,7 +44,6 @@ function statRange(value) {
 
 function formatRange(value) {
   const range = statRange(value);
-
   return `${range.low.toLocaleString()}–${range.high.toLocaleString()}`;
 }
 
@@ -70,6 +66,8 @@ function calcDeckStats(deck, playerCardList = [], masterCards = []) {
       if (!pc) return null;
 
       const card = masterCards.find((c) => c.id === pc.card_id);
+
+      if (!card) return null;
 
       return {
         playerCard: pc,
@@ -124,7 +122,6 @@ function calcDeckStats(deck, playerCardList = [], masterCards = []) {
 
 function estimateAttackerWinPoints(attackerStats, defenderStats) {
   const defenderStrengthPoints = Math.round((defenderStats.power || 0) / 350);
-
   const noDeckPenalty = defenderStats.hasDeck ? 0 : -4;
 
   const underdogBonus =
@@ -132,7 +129,11 @@ function estimateAttackerWinPoints(attackerStats, defenderStats) {
       ? Math.round((defenderStats.power - attackerStats.power) / 250)
       : 0;
 
-  return clamp(2 + defenderStrengthPoints + underdogBonus + noDeckPenalty, 1, 75);
+  return clamp(
+    2 + defenderStrengthPoints + underdogBonus + noDeckPenalty,
+    1,
+    75
+  );
 }
 
 function estimateDefenderWinPoints(attackerStats, defenderStats) {
@@ -146,42 +147,6 @@ function estimateDefenderWinPoints(attackerStats, defenderStats) {
   return clamp(4 + attackerStrengthPoints + defenderUnderdogBonus, 3, 90);
 }
 
-function resolveBattle(attackerStats, defenderStats) {
-  const attackerBattlePower =
-    (attackerStats.attack || 0) * rollMultiplier() +
-    (attackerStats.hp || 0) * 0.25;
-
-  const defenderBattlePower =
-    (defenderStats.defense || 0) * rollMultiplier() +
-    (defenderStats.hp || 0) * 0.25;
-
-  const attackerWon = attackerBattlePower >= defenderBattlePower;
-
-  const attackerPoints = attackerWon
-    ? estimateAttackerWinPoints(attackerStats, defenderStats)
-    : 0;
-
-  const defenderPoints = attackerWon
-    ? 0
-    : estimateDefenderWinPoints(attackerStats, defenderStats);
-
-  const goldReward = attackerWon
-    ? clamp(Math.round(25 + defenderStats.power / 60), 25, 250)
-    : 5;
-
-  const xpReward = attackerWon ? 35 : 10;
-
-  return {
-    attackerWon,
-    attackerBattlePower: Math.round(attackerBattlePower),
-    defenderBattlePower: Math.round(defenderBattlePower),
-    attackerPoints,
-    defenderPoints,
-    goldReward,
-    xpReward,
-  };
-}
-
 export default function Battle() {
   const { data: cards = [] } = useCards();
   const { data: playerCards = [] } = usePlayerCards();
@@ -192,6 +157,8 @@ export default function Battle() {
 
   const [result, setResult] = useState(null);
   const [attackingId, setAttackingId] = useState(null);
+  const [battleOpponent, setBattleOpponent] = useState(null);
+  const [battleResolved, setBattleResolved] = useState(false);
 
   useEffect(() => {
     const channel = supabase
@@ -293,9 +260,55 @@ export default function Battle() {
     return decks.find((d) => d.is_active) || null;
   }, [decks]);
 
+  const myDeckCards = useMemo(() => {
+    if (!myActiveDeck) return [];
+
+    return (myActiveDeck.card_ids || [])
+      .map((pcId) => {
+        const playerCard = playerCards.find((pc) => pc.id === pcId);
+
+        if (!playerCard) return null;
+
+        const card = cards.find((c) => c.id === playerCard.card_id);
+
+        if (!card) return null;
+
+        return {
+          card,
+          playerCard,
+        };
+      })
+      .filter(Boolean);
+  }, [myActiveDeck, playerCards, cards]);
+
   const myDeckStats = useMemo(() => {
     return calcDeckStats(myActiveDeck, playerCards, cards);
   }, [myActiveDeck, playerCards, cards]);
+
+  const getOpponentDeckCards = (opponent) => {
+    if (!opponent?.activeDeck) return [];
+
+    const theirCards = allPlayerCards.filter(
+      (pc) => pc.user_id === opponent.id
+    );
+
+    return (opponent.activeDeck.card_ids || [])
+      .map((pcId) => {
+        const playerCard = theirCards.find((pc) => pc.id === pcId);
+
+        if (!playerCard) return null;
+
+        const card = cards.find((c) => c.id === playerCard.card_id);
+
+        if (!card) return null;
+
+        return {
+          card,
+          playerCard,
+        };
+      })
+      .filter(Boolean);
+  };
 
   const arenaPlayers = useMemo(() => {
     return allProfiles
@@ -314,11 +327,17 @@ export default function Battle() {
           deckStats
         );
 
+        const possibleDefenderPoints = estimateDefenderWinPoints(
+          myDeckStats,
+          deckStats
+        );
+
         return {
           ...p,
           activeDeck,
           deckStats,
           possibleWinPoints,
+          possibleDefenderPoints,
         };
       })
       .sort((a, b) => {
@@ -326,7 +345,7 @@ export default function Battle() {
       });
   }, [allProfiles, allDecks, allPlayerCards, cards, profile, myDeckStats]);
 
-  const attackPlayer = async (opponent) => {
+  const openBattle = async (opponent) => {
     if (!profile) {
       toast.error('Profile has not loaded yet');
       return;
@@ -337,19 +356,43 @@ export default function Battle() {
       return;
     }
 
-    setAttackingId(opponent.id);
     setResult(null);
+    setBattleResolved(false);
+    setBattleOpponent(opponent);
+  };
+
+  const finishBattle = async (battleResult) => {
+    if (!profile || !battleOpponent || battleResolved) {
+      return;
+    }
+
+    setBattleResolved(true);
+    setAttackingId(battleOpponent.id);
 
     try {
-      const battleResult = resolveBattle(myDeckStats, opponent.deckStats);
+      const attackerWon = !!battleResult.attackerWon;
+
+      const attackerPoints = attackerWon
+        ? battleOpponent.possibleWinPoints
+        : 0;
+
+      const defenderPoints = attackerWon
+        ? 0
+        : battleOpponent.possibleDefenderPoints;
+
+      const goldReward = attackerWon
+        ? clamp(Math.round(25 + battleOpponent.deckStats.power / 60), 25, 250)
+        : 5;
+
+      const xpReward = attackerWon ? 35 : 10;
 
       const { data, error } = await supabase.rpc('apply_arena_battle_result', {
-        p_defender_id: opponent.id,
-        p_attacker_won: battleResult.attackerWon,
-        p_attacker_points: battleResult.attackerPoints,
-        p_defender_points: battleResult.defenderPoints,
-        p_gold_reward: battleResult.goldReward,
-        p_xp_reward: battleResult.xpReward,
+        p_defender_id: battleOpponent.id,
+        p_attacker_won: attackerWon,
+        p_attacker_points: attackerPoints,
+        p_defender_points: defenderPoints,
+        p_gold_reward: goldReward,
+        p_xp_reward: xpReward,
         p_attack_cost: ATTACK_COST,
       });
 
@@ -358,17 +401,24 @@ export default function Battle() {
       }
 
       setResult({
-        opponent,
+        opponent: battleOpponent,
         ...battleResult,
+        attackerWon,
+        attackerPoints,
+        defenderPoints,
+        goldReward,
+        xpReward,
       });
 
       await queryClient.invalidateQueries({ queryKey: ['playerProfile'] });
       await queryClient.invalidateQueries({ queryKey: ['allProfiles'] });
+      await queryClient.invalidateQueries({ queryKey: ['allDecks'] });
+      await queryClient.invalidateQueries({ queryKey: ['allPlayerCards'] });
 
       toast.success(
-        battleResult.attackerWon
-          ? `Victory! +${battleResult.attackerPoints} Arena Points`
-          : `Defeat. Defender gained +${battleResult.defenderPoints} Arena Points`
+        attackerWon
+          ? `Victory! +${attackerPoints} Arena Points`
+          : `Defeat. Defender gained +${defenderPoints} Arena Points`
       );
 
       return data;
@@ -379,6 +429,40 @@ export default function Battle() {
       setAttackingId(null);
     }
   };
+
+  const closeBattle = () => {
+    setBattleOpponent(null);
+    setBattleResolved(false);
+    setResult(null);
+  };
+
+  if (battleOpponent) {
+    const opponentDeckCards = getOpponentDeckCards(battleOpponent);
+
+    return (
+      <div className="max-w-lg mx-auto">
+        <PageHeader
+          title={`vs ${
+            battleOpponent.display_name ||
+            battleOpponent.email ||
+            'Opponent'
+          }`}
+        />
+
+        <div className="px-4 py-4">
+          <BattleScreen
+            myDeckCards={myDeckCards}
+            opponentDeckCards={opponentDeckCards}
+            opponent={battleOpponent}
+            possibleWinPoints={battleOpponent.possibleWinPoints}
+            possibleDefenderPoints={battleOpponent.possibleDefenderPoints}
+            onFinish={finishBattle}
+            onBack={closeBattle}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-lg mx-auto space-y-4">
@@ -505,14 +589,18 @@ export default function Battle() {
               <div className="rounded-lg bg-background/40 border border-border p-2 text-center">
                 <p className="text-muted-foreground">Your Battle Power</p>
                 <p className="font-bold">
-                  {result.attackerBattlePower.toLocaleString()}
+                  {result.attackerBattlePower?.toLocaleString?.() ||
+                    result.myTotal?.toLocaleString?.() ||
+                    '—'}
                 </p>
               </div>
 
               <div className="rounded-lg bg-background/40 border border-border p-2 text-center">
                 <p className="text-muted-foreground">Defender Power</p>
                 <p className="font-bold">
-                  {result.defenderBattlePower.toLocaleString()}
+                  {result.defenderBattlePower?.toLocaleString?.() ||
+                    result.oppTotal?.toLocaleString?.() ||
+                    '—'}
                 </p>
               </div>
             </div>
@@ -583,6 +671,10 @@ export default function Battle() {
                     <p className="font-bold text-primary text-sm">
                       +{opponent.possibleWinPoints} pts
                     </p>
+
+                    <p className="text-[9px] text-blue-300">
+                      Lose: defender +{opponent.possibleDefenderPoints}
+                    </p>
                   </div>
                 </div>
 
@@ -613,7 +705,7 @@ export default function Battle() {
                 </div>
 
                 <Button
-                  onClick={() => attackPlayer(opponent)}
+                  onClick={() => openBattle(opponent)}
                   disabled={attackingId === opponent.id}
                   className="w-full gap-2"
                 >
