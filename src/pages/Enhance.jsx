@@ -105,11 +105,14 @@ function inferStageFromName(card) {
 }
 
 function getCardStage(card) {
-  const stage = normalizeStage(card?.evolution_stage);
   const evoForm = normalizeStage(card?.evo_form);
+  const stage = normalizeStage(card?.evolution_stage);
 
-  if (stage) return stage;
-  if (evoForm) return evoForm;
+  // evo_form is the most reliable form marker in your cards table.
+  if (evoForm && evoForm !== 'base') return evoForm;
+  if (stage && stage !== 'base') return stage;
+
+  if (evoForm === 'base' || stage === 'base') return 'base';
 
   return inferStageFromName(card);
 }
@@ -211,7 +214,11 @@ function findNextStageCard({ cards, currentCard, nextStage }) {
     return sameLine && candidateStage === normalizedNextStage;
   });
 
-  return candidates.find((candidate) => candidate.image_url) || candidates[0] || null;
+  const withImage = candidates.find(
+    (candidate) => candidate.image_url && String(candidate.image_url).trim() !== ''
+  );
+
+  return withImage || candidates[0] || null;
 }
 
 function getStageBaseStat(playerCard, card, stat) {
