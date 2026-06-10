@@ -19,45 +19,24 @@ const BASE_MAX_LEVEL = 10;
 const FINAL_FORM_MAX_LEVEL = 20;
 const MAX_EVOLVES = 3;
 
-// Current controlled stat growth after each created stage base.
-// Lv.1 = 100% of stage base.
-// Lv.10 = 190% of stage base.
-// Lv.20 = 290% of stage base.
 const STAT_GROWTH_PER_LEVEL = 0.1;
 
 const EVOLUTION_RATES = {
-  base_plus: 0.4, // Base → Base+
-  base_plus_plus: 0.45, // Base+ → Base++
-  final: 0.5, // Base++ → Final
+  base_plus: 0.4,
+  base_plus_plus: 0.45,
+  final: 0.5,
 };
 
-// Card capacity per player level
 function cardCapacity(level) {
   return 50 + (level - 1) * 10;
 }
 
-// XP needed to level up from currentLevel
 function xpToNextLevel(level) {
   return level * 50;
 }
 
-function getNextEvolutionStage(newEvolveCount) {
-  if (newEvolveCount >= 3) return 'final';
-  if (newEvolveCount === 2) return 'base_plus_plus';
-  if (newEvolveCount === 1) return 'base_plus';
-  return 'base';
-}
-
-function getEvolutionRate(newEvolveCount) {
-  const nextStage = getNextEvolutionStage(newEvolveCount);
-  return EVOLUTION_RATES[nextStage] || 0.4;
-}
-
-function formatStageLabel(stage) {
-  if (stage === 'base_plus') return 'Base+';
-  if (stage === 'base_plus_plus') return 'Base++';
-  if (stage === 'final') return 'Final Form';
-  return 'Base';
+function normalizeText(value) {
+  return String(value || '').toLowerCase().trim();
 }
 
 function normalizeStage(value) {
@@ -69,6 +48,62 @@ function normalizeStage(value) {
     .replaceAll('-', '_');
 }
 
+function inferLineFromName(value) {
+  return normalizeText(value)
+    .replace(/base\+\+/g, '')
+    .replace(/base_plus_plus/g, '')
+    .replace(/base\+/g, '')
+    .replace(/base_plus/g, '')
+    .replace(/final form/g, '')
+    .replace(/final/g, '')
+    .replace(/\bbase\b/g, '')
+    .replace(/[,]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getCardLineKey(card) {
+  const explicitLine = normalizeText(card?.card_line);
+
+  if (explicitLine) {
+    return explicitLine;
+  }
+
+  return inferLineFromName(card?.full_card_name || card?.name || '');
+}
+
+function inferStageFromName(card) {
+  const text = normalizeText(
+    `${card?.name || ''} ${card?.full_card_name || ''}`
+  );
+
+  if (
+    text.includes('final form') ||
+    text.includes(' final') ||
+    text.endsWith('final')
+  ) {
+    return 'final';
+  }
+
+  if (
+    text.includes('base++') ||
+    text.includes('base_plus_plus') ||
+    text.includes('++')
+  ) {
+    return 'base_plus_plus';
+  }
+
+  if (
+    text.includes('base+') ||
+    text.includes('base_plus') ||
+    text.includes('+')
+  ) {
+    return 'base_plus';
+  }
+
+  return 'base';
+}
+
 function getCardStage(card) {
   const stage = normalizeStage(card?.evolution_stage);
   const evoForm = normalizeStage(card?.evo_form);
@@ -76,53 +111,107 @@ function getCardStage(card) {
   if (stage) return stage;
   if (evoForm) return evoForm;
 
+  return inferStageFromName(card);
+}
+
+function getNextEvolutionStage(evolveCount) {
+  if (evolveCount >= 3) return 'final';
+  if (evolveCount === 2) return 'base_plus_plus';
+  if (evolveCount === 1) return 'base_plus';
   return 'base';
 }
 
-function getCardLine(card) {
-  return String(card?.card_line || card?.name || card?.full_card_name || '')
-    .toLowerCase()
-    .trim();
+function formatStageLabel(stage) {
+  if (stage === 'base_plus') return 'Base+';
+  if (stage === 'base_plus_plus') return 'Base++';
+  if (stage === 'final') return 'Final Form';
+  return 'Base';
+}
+
+function getEvolutionRate(nextEvolveCount) {
+  const nextStage = getNextEvolutionStage(nextEvolveCount);
+  return EVOLUTION_RATES[nextStage] || 0.4;
+}
+
+function getStageCountFromStage(stage) {
+  const normalized = normalizeStage(stage);
+
+  if (normalized === 'final') return 3;
+  if (normalized === 'base_plus_plus') return 2;
+  if (normalized === 'base_plus') return 1;
+
+  return 0;
+}
+
+function getOwnedCardStageCount(playerCard, card) {
+  const evolveCount = Number(playerCard?.evolve_count || 0);
+
+  if (evolveCount > 0) {
+    return Math.min(evolveCount, MAX_EVOLVES);
+  }
+
+  return getStageCountFromStage(
+    playerCard?.evolution_stage || card?.evolution_stage || card?.evo_form
+  );
+}
+
+function getNextEvolveCountFromTarget(targetPlayerCard, targetCard) {
+  const targetStageCount = getOwnedCardStageCount(targetPlayerCard, targetCard);
+
+  return Math.min(targetStageCount + 1, MAX_EVOLVES);
+}
+
+function isFinalForm(playerCard, card) {
+  return getOwnedCardStageCount(playerCard, card) >= MAX_EVOLVES;
+}
+
+function getCardMaxLevel(playerCard, card) {
+  return isFinalForm(playerCard, card)
+    ? FINAL_FORM_MAX_LEVEL
+    : BASE_MAX_LEVEL;
+}
+
+function isCardMaxed(playerCard, card) {
+  return Number(playerCard?.level || 1) >= getCardMaxLevel(playerCard, card);
+}
+
+function isValidEvolutionMaterial(
+  targetPlayerCard,
+  targetCard,
+  consumedPlayerCard,
+  consumedCard
+) {
+  if (!targetPlayerCard || !targetCard || !consumedPlayerCard || !consumedCard) {
+    return false;
+  }
+
+  if (targetPlayerCard.id === consumedPlayerCard.id) {
+    return false;
+  }
+
+  if (consumedPlayerCard.locked === true) {
+    return false;
+  }
+
+  if (isFinalForm(targetPlayerCard, targetCard)) {
+    return false;
+  }
+
+  return getCardLineKey(targetCard) === getCardLineKey(consumedCard);
 }
 
 function findNextStageCard({ cards, currentCard, nextStage }) {
-  const currentLine = getCardLine(currentCard);
+  const currentLine = getCardLineKey(currentCard);
   const normalizedNextStage = normalizeStage(nextStage);
 
   const candidates = cards.filter((candidate) => {
-    const sameLine = getCardLine(candidate) === currentLine;
+    const sameLine = getCardLineKey(candidate) === currentLine;
     const candidateStage = getCardStage(candidate);
 
     return sameLine && candidateStage === normalizedNextStage;
   });
 
   return candidates.find((candidate) => candidate.image_url) || candidates[0] || null;
-}
-
-function isFinalForm(playerCard) {
-  const stage = String(playerCard?.evolution_stage || '').toLowerCase();
-
-  return (
-    stage === 'final' ||
-    stage === 'final_form' ||
-    stage === 'final form' ||
-    Number(playerCard?.evolve_count || 0) >= MAX_EVOLVES
-  );
-}
-
-function getCardMaxLevel(playerCard) {
-  return isFinalForm(playerCard) ? FINAL_FORM_MAX_LEVEL : BASE_MAX_LEVEL;
-}
-
-function isCardMaxed(playerCard) {
-  return Number(playerCard?.level || 1) >= getCardMaxLevel(playerCard);
-}
-
-function getMasterBaseStat(card, stat) {
-  if (stat === 'attack') return Number(card?.base_attack || 0);
-  if (stat === 'defense') return Number(card?.base_defense || 0);
-  if (stat === 'hp') return Number(card?.base_hp || 0);
-  return 0;
 }
 
 function getStageBaseStat(playerCard, card, stat) {
@@ -207,8 +296,6 @@ function buildEnhanceStats({ card, playerCard, newLevel, levelsGained }) {
   const calculatedDefense = calculateEnhancedStat(stageBaseDefense, newLevel);
   const calculatedHp = calculateEnhancedStat(stageBaseHp, newLevel);
 
-  // Never let enhancement reduce stats.
-  // If the card gained no level, stats stay unchanged.
   if (levelsGained <= 0) {
     return {
       attack: currentAttack,
@@ -233,9 +320,9 @@ export default function Enhance() {
 
   const queryClient = useQueryClient();
 
-  const [step, setStep] = useState('pick'); // pick | fodder | evolve
+  const [step, setStep] = useState('pick');
   const [selectedTarget, setSelectedTarget] = useState(null);
-  const [tab, setTab] = useState('enhance'); // enhance | evolve
+  const [tab, setTab] = useState('enhance');
   const [processing, setProcessing] = useState(false);
 
   const enrichedCards = useMemo(() => {
@@ -255,12 +342,11 @@ export default function Enhance() {
     setSelectedTarget(null);
   };
 
-  // ── ENHANCE: confirm fodder sacrifice ──
   const handleEnhanceConfirm = async (fodderIds, totalXpGain) => {
     if (!selectedTarget) return;
 
     const { card, playerCard } = selectedTarget;
-    const maxLevel = getCardMaxLevel(playerCard);
+    const maxLevel = getCardMaxLevel(playerCard, card);
     const currentLevel = playerCard.level || 1;
 
     if (currentLevel >= maxLevel) {
@@ -291,7 +377,6 @@ export default function Enhance() {
         newLevel += 1;
       }
 
-      // Once maxed, stop XP gain completely.
       if (newLevel >= maxLevel) {
         newLevel = maxLevel;
         newXp = 0;
@@ -317,7 +402,6 @@ export default function Enhance() {
           hp: enhancedStats.hp,
           max_hp: enhancedStats.max_hp,
 
-          // If these are missing on older cards, preserve/repair them now.
           stage_base_attack:
             playerCard.stage_base_attack ?? card.base_attack ?? enhancedStats.attack,
           stage_base_defense:
@@ -364,211 +448,229 @@ export default function Enhance() {
     }
   };
 
-  // ── EVOLVE: consume one selected duplicate ──
-const handleEvolve = async (duplicatePcId) => {
-  if (!selectedTarget) return;
+  const handleEvolve = async (consumedPcId) => {
+    if (!selectedTarget) return;
 
-  const { card, playerCard } = selectedTarget;
+    const { card, playerCard } = selectedTarget;
 
-  if (!duplicatePcId) {
-    toast.error('Select a duplicate to evolve');
-    return;
-  }
-
-  if (duplicatePcId === playerCard.id) {
-    toast.error('You cannot consume the target card');
-    return;
-  }
-
-  if ((playerCard.evolve_count || 0) >= MAX_EVOLVES) {
-    toast.error(`${card.name} is already Final Form`);
-    return;
-  }
-
-  const duplicateItem = enrichedCards.find(
-    (item) => item.playerCard.id === duplicatePcId
-  );
-
-  if (!duplicateItem) {
-    toast.error('Could not find selected duplicate');
-    return;
-  }
-
-  const duplicatePlayerCard = duplicateItem.playerCard;
-  const duplicateCard = duplicateItem.card;
-
-  const sameCard =
-    duplicatePlayerCard.card_id === playerCard.card_id ||
-    duplicateCard.id === card.id;
-
-  if (!sameCard) {
-    toast.error('Selected card is not a valid duplicate');
-    return;
-  }
-
-  setProcessing(true);
-
-  try {
-    const now = new Date().toISOString();
-
-    const newEvolveCount = (playerCard.evolve_count || 0) + 1;
-    const nextStage = getNextEvolutionStage(newEvolveCount);
-    const nextStageLabel = formatStageLabel(nextStage);
-    const rate = getEvolutionRate(newEvolveCount);
-
-    const nextMasterCard = findNextStageCard({
-      cards,
-      currentCard: card,
-      nextStage,
-    });
-
-    if (!nextMasterCard) {
-      toast.error(
-        `Missing ${nextStageLabel} card art/master card for ${card.name}`
-      );
+    if (!consumedPcId) {
+      toast.error('Select a card to consume');
       return;
     }
 
-    const previousStageBaseAttack = getStageBaseStat(
-      playerCard,
-      card,
-      'attack'
-    );
-    const previousStageBaseDefense = getStageBaseStat(
-      playerCard,
-      card,
-      'defense'
-    );
-    const previousStageBaseHp = getStageBaseStat(playerCard, card, 'hp');
-
-    const targetAttack = getCurrentStat(playerCard, card, 'attack');
-    const targetDefense = getCurrentStat(playerCard, card, 'defense');
-    const targetHp = getCurrentStat(playerCard, card, 'hp');
-
-    const consumedAttack = getCurrentStat(
-      duplicatePlayerCard,
-      duplicateCard,
-      'attack'
-    );
-    const consumedDefense = getCurrentStat(
-      duplicatePlayerCard,
-      duplicateCard,
-      'defense'
-    );
-    const consumedHp = getCurrentStat(
-      duplicatePlayerCard,
-      duplicateCard,
-      'hp'
-    );
-
-    const newStageBaseAttack = calculateEvolvedStat({
-      previousStageBase: previousStageBaseAttack,
-      targetCurrent: targetAttack,
-      consumedCurrent: consumedAttack,
-      rate,
-    });
-
-    const newStageBaseDefense = calculateEvolvedStat({
-      previousStageBase: previousStageBaseDefense,
-      targetCurrent: targetDefense,
-      consumedCurrent: consumedDefense,
-      rate,
-    });
-
-    const newStageBaseHp = calculateEvolvedStat({
-      previousStageBase: previousStageBaseHp,
-      targetCurrent: targetHp,
-      consumedCurrent: consumedHp,
-      rate,
-    });
-
-    const inheritedAttackGain = Math.max(
-      0,
-      newStageBaseAttack - previousStageBaseAttack
-    );
-
-    const inheritedDefenseGain = Math.max(
-      0,
-      newStageBaseDefense - previousStageBaseDefense
-    );
-
-    const inheritedHpGain = Math.max(
-      0,
-      newStageBaseHp - previousStageBaseHp
-    );
-
-    const { error: updateError } = await supabase
-      .from('player_cards')
-      .update({
-        // This is the artwork/stage fix.
-        card_id: nextMasterCard.id,
-
-        evolved: true,
-        evolve_count: newEvolveCount,
-        evolution_stage: nextStage,
-
-        stage_base_attack: newStageBaseAttack,
-        stage_base_defense: newStageBaseDefense,
-        stage_base_hp: newStageBaseHp,
-
-        attack: newStageBaseAttack,
-        defense: newStageBaseDefense,
-        hp: newStageBaseHp,
-        max_hp: newStageBaseHp,
-
-        inherited_attack:
-          (playerCard.inherited_attack || 0) + inheritedAttackGain,
-        inherited_defense:
-          (playerCard.inherited_defense || 0) + inheritedDefenseGain,
-        inherited_hp: (playerCard.inherited_hp || 0) + inheritedHpGain,
-
-        // New stage starts fresh from the newly created base.
-        level: 1,
-        experience: 0,
-
-        updated_at: now,
-      })
-      .eq('id', playerCard.id);
-
-    if (updateError) {
-      throw updateError;
+    if (consumedPcId === playerCard.id) {
+      toast.error('You cannot consume the target card');
+      return;
     }
 
-    const { error: deleteError } = await supabase
-      .from('player_cards')
-      .delete()
-      .eq('id', duplicatePcId);
-
-    if (deleteError) {
-      throw deleteError;
+    if (isFinalForm(playerCard, card)) {
+      toast.error(`${card.name} is already Final Form`);
+      return;
     }
 
-    queryClient.invalidateQueries({ queryKey: ['playerCards'] });
-
-    toast.success(
-      newEvolveCount >= MAX_EVOLVES
-        ? `🌟 ${nextMasterCard.name || card.name} reached Final Form! New base: ${newStageBaseAttack} ATK / ${newStageBaseDefense} DEF / ${newStageBaseHp} HP.`
-        : `🌟 ${nextMasterCard.name || card.name} evolved to ${nextStageLabel}! New base: ${newStageBaseAttack} ATK / ${newStageBaseDefense} DEF / ${newStageBaseHp} HP.`
+    const consumedItem = enrichedCards.find(
+      (item) => item.playerCard.id === consumedPcId
     );
 
-    resetFlow();
-  } catch (error) {
-    console.error(error);
-    toast.error(error.message || 'Could not evolve card');
-  } finally {
-    setProcessing(false);
-  }
-};
+    if (!consumedItem) {
+      toast.error('Could not find selected evolution material');
+      return;
+    }
+
+    const consumedPlayerCard = consumedItem.playerCard;
+    const consumedCard = consumedItem.card;
+
+    const validMaterial = isValidEvolutionMaterial(
+      playerCard,
+      card,
+      consumedPlayerCard,
+      consumedCard
+    );
+
+    if (!validMaterial) {
+      toast.error('Selected card is not valid evolution material');
+      return;
+    }
+
+    setProcessing(true);
+
+    try {
+      const now = new Date().toISOString();
+
+      const currentStageCount = getOwnedCardStageCount(playerCard, card);
+      const currentStage = getNextEvolutionStage(currentStageCount);
+      const currentStageLabel = formatStageLabel(currentStage);
+
+      const consumedStageCount = getOwnedCardStageCount(
+        consumedPlayerCard,
+        consumedCard
+      );
+      const consumedStage = getNextEvolutionStage(consumedStageCount);
+      const consumedStageLabel = formatStageLabel(consumedStage);
+
+      /**
+       * Target-driven evolution:
+       * Base target always becomes Base+
+       * Base+ target always becomes Base++
+       * Base++ target always becomes Final
+       *
+       * Consumed card stage affects stats only, not resulting form.
+       */
+      const newEvolveCount = getNextEvolveCountFromTarget(playerCard, card);
+      const nextStage = getNextEvolutionStage(newEvolveCount);
+      const nextStageLabel = formatStageLabel(nextStage);
+      const rate = getEvolutionRate(newEvolveCount);
+
+      const nextMasterCard = findNextStageCard({
+        cards,
+        currentCard: card,
+        nextStage,
+      });
+
+      if (!nextMasterCard) {
+        toast.error(
+          `Missing ${nextStageLabel} artwork/master card row for ${card.name}`
+        );
+        return;
+      }
+
+      const previousStageBaseAttack = getStageBaseStat(
+        playerCard,
+        card,
+        'attack'
+      );
+      const previousStageBaseDefense = getStageBaseStat(
+        playerCard,
+        card,
+        'defense'
+      );
+      const previousStageBaseHp = getStageBaseStat(playerCard, card, 'hp');
+
+      const targetAttack = getCurrentStat(playerCard, card, 'attack');
+      const targetDefense = getCurrentStat(playerCard, card, 'defense');
+      const targetHp = getCurrentStat(playerCard, card, 'hp');
+
+      const consumedAttack = getCurrentStat(
+        consumedPlayerCard,
+        consumedCard,
+        'attack'
+      );
+      const consumedDefense = getCurrentStat(
+        consumedPlayerCard,
+        consumedCard,
+        'defense'
+      );
+      const consumedHp = getCurrentStat(consumedPlayerCard, consumedCard, 'hp');
+
+      const newStageBaseAttack = calculateEvolvedStat({
+        previousStageBase: previousStageBaseAttack,
+        targetCurrent: targetAttack,
+        consumedCurrent: consumedAttack,
+        rate,
+      });
+
+      const newStageBaseDefense = calculateEvolvedStat({
+        previousStageBase: previousStageBaseDefense,
+        targetCurrent: targetDefense,
+        consumedCurrent: consumedDefense,
+        rate,
+      });
+
+      const newStageBaseHp = calculateEvolvedStat({
+        previousStageBase: previousStageBaseHp,
+        targetCurrent: targetHp,
+        consumedCurrent: consumedHp,
+        rate,
+      });
+
+      const inheritedAttackGain = Math.max(
+        0,
+        newStageBaseAttack - previousStageBaseAttack
+      );
+
+      const inheritedDefenseGain = Math.max(
+        0,
+        newStageBaseDefense - previousStageBaseDefense
+      );
+
+      const inheritedHpGain = Math.max(0, newStageBaseHp - previousStageBaseHp);
+
+      const { error: updateError } = await supabase
+        .from('player_cards')
+        .update({
+          card_id: nextMasterCard.id,
+
+          evolved: true,
+          evolve_count: newEvolveCount,
+          evolution_stage: nextStage,
+
+          stage_base_attack: newStageBaseAttack,
+          stage_base_defense: newStageBaseDefense,
+          stage_base_hp: newStageBaseHp,
+
+          attack: newStageBaseAttack,
+          defense: newStageBaseDefense,
+          hp: newStageBaseHp,
+          max_hp: newStageBaseHp,
+
+          inherited_attack:
+            (playerCard.inherited_attack || 0) + inheritedAttackGain,
+          inherited_defense:
+            (playerCard.inherited_defense || 0) + inheritedDefenseGain,
+          inherited_hp: (playerCard.inherited_hp || 0) + inheritedHpGain,
+
+          level: 1,
+          experience: 0,
+
+          updated_at: now,
+        })
+        .eq('id', playerCard.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      const { error: deleteError } = await supabase
+        .from('player_cards')
+        .delete()
+        .eq('id', consumedPcId);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['playerCards'] });
+
+      toast.success(
+        `🌟 ${nextMasterCard.name || card.name} evolved to ${nextStageLabel}! ` +
+          `${currentStageLabel} + ${consumedStageLabel} → ${nextStageLabel}. ` +
+          `New base: ${newStageBaseAttack} ATK / ${newStageBaseDefense} DEF / ${newStageBaseHp} HP.`
+      );
+
+      resetFlow();
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Could not evolve card');
+    } finally {
+      setProcessing(false);
+    }
+  };
 
   const handleSelectTarget = (item, mode) => {
     if (processing) return;
 
-    if (mode === 'enhance' && isCardMaxed(item.playerCard)) {
+    if (mode === 'enhance' && isCardMaxed(item.playerCard, item.card)) {
       toast.error(
         `${item.card.name} is already MAX level (${getCardMaxLevel(
-          item.playerCard
+          item.playerCard,
+          item.card
         )})`
       );
+      return;
+    }
+
+    if (mode === 'evolve' && isFinalForm(item.playerCard, item.card)) {
+      toast.error(`${item.card.name} is already Final Form`);
       return;
     }
 
@@ -578,13 +680,18 @@ const handleEvolve = async (duplicatePcId) => {
 
   const enhancedCardsForPicker = useMemo(() => {
     return enrichedCards.map((item) => {
-      const maxLevel = getCardMaxLevel(item.playerCard);
-      const maxed = isCardMaxed(item.playerCard);
+      const maxLevel = getCardMaxLevel(item.playerCard, item.card);
+      const maxed = isCardMaxed(item.playerCard, item.card);
+      const stageCount = getOwnedCardStageCount(item.playerCard, item.card);
+      const stage = getNextEvolutionStage(stageCount);
 
       return {
         ...item,
         maxLevel,
         maxed,
+        stageCount,
+        stage,
+        stageLabel: formatStageLabel(stage),
       };
     });
   }, [enrichedCards]);
@@ -594,7 +701,6 @@ const handleEvolve = async (duplicatePcId) => {
       <PageHeader title="Enhance" />
 
       <div className="px-4 py-4 space-y-4">
-        {/* Card capacity bar */}
         {profile && (
           <div
             className={`rounded-xl border p-3 flex items-center gap-3 ${
@@ -650,11 +756,11 @@ const handleEvolve = async (duplicatePcId) => {
         </div>
 
         <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 space-y-1">
-          <p className="text-xs font-bold text-primary">Evolution Inheritance</p>
+          <p className="text-xs font-bold text-primary">Target-Driven Evolution</p>
           <p className="text-[11px] text-muted-foreground">
-            New stage base = previous stage base + percentage of the target and
-            consumed card’s current stats. Base→Base+ uses 40%, Base+→Base++
-            uses 45%, and Base++→Final uses 50%.
+            The selected target always evolves one form forward. Consumed
+            same-line cards contribute stats only. Base becomes Base+, Base+
+            becomes Base++, and Base++ becomes Final Form.
           </p>
         </div>
 
@@ -690,9 +796,9 @@ const handleEvolve = async (duplicatePcId) => {
                         Choose a Card to Evolve
                       </h2>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        Select a card with a duplicate in your collection.
-                        Investment in both cards affects the next stage’s base
-                        stats.
+                        Select the target card first. It will evolve one stage
+                        forward. Then choose a same-line card to consume for stat
+                        inheritance.
                       </p>
                     </div>
 
@@ -716,8 +822,14 @@ const handleEvolve = async (duplicatePcId) => {
               <FodderPicker
                 target={{
                   ...selectedTarget,
-                  maxLevel: getCardMaxLevel(selectedTarget.playerCard),
-                  maxed: isCardMaxed(selectedTarget.playerCard),
+                  maxLevel: getCardMaxLevel(
+                    selectedTarget.playerCard,
+                    selectedTarget.card
+                  ),
+                  maxed: isCardMaxed(
+                    selectedTarget.playerCard,
+                    selectedTarget.card
+                  ),
                 }}
                 enrichedCards={enhancedCardsForPicker}
                 onConfirm={handleEnhanceConfirm}
@@ -737,8 +849,14 @@ const handleEvolve = async (duplicatePcId) => {
               <EvolvePanel
                 target={{
                   ...selectedTarget,
-                  maxLevel: getCardMaxLevel(selectedTarget.playerCard),
-                  maxed: isCardMaxed(selectedTarget.playerCard),
+                  maxLevel: getCardMaxLevel(
+                    selectedTarget.playerCard,
+                    selectedTarget.card
+                  ),
+                  maxed: isCardMaxed(
+                    selectedTarget.playerCard,
+                    selectedTarget.card
+                  ),
                 }}
                 enrichedCards={enhancedCardsForPicker}
                 onEvolve={handleEvolve}

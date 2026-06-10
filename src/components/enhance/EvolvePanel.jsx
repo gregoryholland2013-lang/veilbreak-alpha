@@ -22,17 +22,183 @@ const elementIcons = {
 
 const MAX_EVOLVES = 3;
 
-// Stat bonus per evolution, display only for now.
-const EVOLVE_BONUS = 0.25;
+const EVOLUTION_RATES = {
+  base_plus: 0.4,
+  base_plus_plus: 0.45,
+  final: 0.5,
+};
 
-function isFinalForm(playerCard) {
-  const stage = String(playerCard?.evolution_stage || '').toLowerCase();
+function normalizeText(value) {
+  return String(value || '').toLowerCase().trim();
+}
 
-  return (
-    stage === 'final' ||
-    stage === 'final_form' ||
-    stage === 'final form' ||
-    Number(playerCard?.evolve_count || 0) >= MAX_EVOLVES
+function normalizeStage(value) {
+  return String(value || '')
+    .toLowerCase()
+    .trim()
+    .replaceAll('+', '_plus')
+    .replaceAll(' ', '_')
+    .replaceAll('-', '_');
+}
+
+function inferLineFromName(value) {
+  return normalizeText(value)
+    .replace(/base\+\+/g, '')
+    .replace(/base_plus_plus/g, '')
+    .replace(/base\+/g, '')
+    .replace(/base_plus/g, '')
+    .replace(/final form/g, '')
+    .replace(/final/g, '')
+    .replace(/\bbase\b/g, '')
+    .replace(/[,]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getCardLineKey(card) {
+  const explicitLine = normalizeText(card?.card_line);
+
+  if (explicitLine) {
+    return explicitLine;
+  }
+
+  return inferLineFromName(card?.full_card_name || card?.name || '');
+}
+
+function getNextEvolutionStage(evolveCount) {
+  if (evolveCount >= 3) return 'final';
+  if (evolveCount === 2) return 'base_plus_plus';
+  if (evolveCount === 1) return 'base_plus';
+  return 'base';
+}
+
+function formatStageLabel(stage) {
+  if (stage === 'base_plus') return 'Base+';
+  if (stage === 'base_plus_plus') return 'Base++';
+  if (stage === 'final') return 'Final Form';
+  return 'Base';
+}
+
+function getEvolutionRate(nextEvolveCount) {
+  const nextStage = getNextEvolutionStage(nextEvolveCount);
+  return EVOLUTION_RATES[nextStage] || 0.4;
+}
+
+function getStageCountFromStage(stage) {
+  const normalized = normalizeStage(stage);
+
+  if (normalized === 'final') return 3;
+  if (normalized === 'base_plus_plus') return 2;
+  if (normalized === 'base_plus') return 1;
+
+  return 0;
+}
+
+function getOwnedCardStageCount(playerCard, card) {
+  const evolveCount = Number(playerCard?.evolve_count || 0);
+
+  if (evolveCount > 0) {
+    return Math.min(evolveCount, MAX_EVOLVES);
+  }
+
+  return getStageCountFromStage(
+    playerCard?.evolution_stage || card?.evolution_stage || card?.evo_form
+  );
+}
+
+function getNextEvolveCountFromTarget(targetPlayerCard, targetCard) {
+  const targetStageCount = getOwnedCardStageCount(targetPlayerCard, targetCard);
+
+  return Math.min(targetStageCount + 1, MAX_EVOLVES);
+}
+
+function isFinalForm(playerCard, card) {
+  return getOwnedCardStageCount(playerCard, card) >= MAX_EVOLVES;
+}
+
+function isValidEvolutionMaterial(
+  targetPlayerCard,
+  targetCard,
+  consumedPlayerCard,
+  consumedCard
+) {
+  if (!targetPlayerCard || !targetCard || !consumedPlayerCard || !consumedCard) {
+    return false;
+  }
+
+  if (targetPlayerCard.id === consumedPlayerCard.id) {
+    return false;
+  }
+
+  if (consumedPlayerCard.locked === true) {
+    return false;
+  }
+
+  if (isFinalForm(targetPlayerCard, targetCard)) {
+    return false;
+  }
+
+  return getCardLineKey(targetCard) === getCardLineKey(consumedCard);
+}
+
+function getCurrentStat(playerCard, card, stat) {
+  if (stat === 'attack') {
+    return Number(
+      playerCard?.attack ??
+        playerCard?.stage_base_attack ??
+        card?.base_attack ??
+        0
+    );
+  }
+
+  if (stat === 'defense') {
+    return Number(
+      playerCard?.defense ??
+        playerCard?.stage_base_defense ??
+        card?.base_defense ??
+        0
+    );
+  }
+
+  if (stat === 'hp') {
+    return Number(
+      playerCard?.hp ??
+        playerCard?.max_hp ??
+        playerCard?.stage_base_hp ??
+        card?.base_hp ??
+        0
+    );
+  }
+
+  return 0;
+}
+
+function getStageBaseStat(playerCard, card, stat) {
+  if (stat === 'attack') {
+    return Number(playerCard?.stage_base_attack ?? card?.base_attack ?? 0);
+  }
+
+  if (stat === 'defense') {
+    return Number(playerCard?.stage_base_defense ?? card?.base_defense ?? 0);
+  }
+
+  if (stat === 'hp') {
+    return Number(playerCard?.stage_base_hp ?? card?.base_hp ?? 0);
+  }
+
+  return 0;
+}
+
+function calculateEvolvedStat({
+  previousStageBase,
+  targetCurrent,
+  consumedCurrent,
+  rate,
+}) {
+  return Math.round(
+    Number(previousStageBase || 0) +
+      (Number(targetCurrent || 0) + Number(consumedCurrent || 0)) *
+        Number(rate || 0)
   );
 }
 
@@ -43,7 +209,110 @@ export default function EvolvePanel({
   onBack,
   disabled,
 }) {
-  const [selectedDuplicateId, setSelectedDuplicateId] = useState(null);
+  const [selectedMaterialId, setSelectedMaterialId] = useState(null);
+
+  const card = target?.card || null;
+  const playerCard = target?.playerCard || null;
+
+  const targetStageCount = card && playerCard
+    ? getOwnedCardStageCount(playerCard, card)
+    : 0;
+
+  const targetStage = getNextEvolutionStage(targetStageCount);
+  const targetStageLabel = formatStageLabel(targetStage);
+  const finalForm = card && playerCard ? isFinalForm(playerCard, card) : false;
+
+  const nextEvolveCount = card && playerCard
+    ? getNextEvolveCountFromTarget(playerCard, card)
+    : 0;
+
+  const nextStage = getNextEvolutionStage(nextEvolveCount);
+  const nextStageLabel = formatStageLabel(nextStage);
+  const rate = getEvolutionRate(nextEvolveCount);
+
+  const validMaterials = useMemo(() => {
+    if (!card || !playerCard) return [];
+
+    return enrichedCards.filter(({ card: candidateCard, playerCard: pc }) => {
+      return isValidEvolutionMaterial(playerCard, card, pc, candidateCard);
+    });
+  }, [enrichedCards, card, playerCard]);
+
+  const selectedMaterial = validMaterials.find(
+    (item) => item.playerCard.id === selectedMaterialId
+  );
+
+  const previewStats = useMemo(() => {
+    if (!card || !playerCard || !selectedMaterial) return null;
+
+    const previousStageBaseAttack = getStageBaseStat(playerCard, card, 'attack');
+    const previousStageBaseDefense = getStageBaseStat(
+      playerCard,
+      card,
+      'defense'
+    );
+    const previousStageBaseHp = getStageBaseStat(playerCard, card, 'hp');
+
+    const targetAttack = getCurrentStat(playerCard, card, 'attack');
+    const targetDefense = getCurrentStat(playerCard, card, 'defense');
+    const targetHp = getCurrentStat(playerCard, card, 'hp');
+
+    const consumedAttack = getCurrentStat(
+      selectedMaterial.playerCard,
+      selectedMaterial.card,
+      'attack'
+    );
+    const consumedDefense = getCurrentStat(
+      selectedMaterial.playerCard,
+      selectedMaterial.card,
+      'defense'
+    );
+    const consumedHp = getCurrentStat(
+      selectedMaterial.playerCard,
+      selectedMaterial.card,
+      'hp'
+    );
+
+    return {
+      attack: calculateEvolvedStat({
+        previousStageBase: previousStageBaseAttack,
+        targetCurrent: targetAttack,
+        consumedCurrent: consumedAttack,
+        rate,
+      }),
+      defense: calculateEvolvedStat({
+        previousStageBase: previousStageBaseDefense,
+        targetCurrent: targetDefense,
+        consumedCurrent: consumedDefense,
+        rate,
+      }),
+      hp: calculateEvolvedStat({
+        previousStageBase: previousStageBaseHp,
+        targetCurrent: targetHp,
+        consumedCurrent: consumedHp,
+        rate,
+      }),
+      targetAttack,
+      targetDefense,
+      targetHp,
+      consumedAttack,
+      consumedDefense,
+      consumedHp,
+    };
+  }, [selectedMaterial, playerCard, card, rate]);
+
+  const stars = Array.from(
+    { length: MAX_EVOLVES },
+    (_, i) => i < targetStageCount
+  );
+
+  const canEvolve =
+    !finalForm && validMaterials.length > 0 && Boolean(selectedMaterialId);
+
+  const confirmEvolve = () => {
+    if (!selectedMaterialId) return;
+    onEvolve?.(selectedMaterialId);
+  };
 
   if (!target?.card || !target?.playerCard) {
     return (
@@ -60,53 +329,8 @@ export default function EvolvePanel({
     );
   }
 
-  const { card, playerCard } = target;
-  const evolveCount = playerCard.evolve_count || 0;
-  const finalForm = isFinalForm(playerCard);
-  const canEvolveMore = !finalForm && evolveCount < MAX_EVOLVES;
-
-  const duplicates = useMemo(() => {
-    return enrichedCards.filter(({ card: candidateCard, playerCard: pc }) => {
-      if (!candidateCard || !pc) return false;
-
-      const sameMasterCard =
-        pc.card_id === playerCard.card_id || candidateCard.id === card.id;
-
-      const notTargetCopy = pc.id !== playerCard.id;
-      const notLocked = pc.locked !== true;
-
-      return sameMasterCard && notTargetCopy && notLocked;
-    });
-  }, [enrichedCards, card.id, playerCard.card_id, playerCard.id]);
-
-  const selectedDuplicate = duplicates.find(
-    (item) => item.playerCard.id === selectedDuplicateId
-  );
-
-  const hasRequiredCopy = duplicates.length > 0;
-  const canEvolve = canEvolveMore && hasRequiredCopy && selectedDuplicateId;
-
-  const currentMult =
-    1 + ((playerCard.level || 1) - 1) * 0.1 + evolveCount * EVOLVE_BONUS;
-
-  const nextMult = currentMult + EVOLVE_BONUS;
-
-  const stars = Array.from(
-    { length: MAX_EVOLVES },
-    (_, i) => i < evolveCount
-  );
-
-  const confirmEvolve = () => {
-    if (!selectedDuplicateId) {
-      return;
-    }
-
-    onEvolve?.(selectedDuplicateId);
-  };
-
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center gap-3">
         <button
           onClick={onBack}
@@ -122,13 +346,12 @@ export default function EvolvePanel({
           </h2>
 
           <p className="text-xs text-muted-foreground">
-            Select exactly which duplicate will be consumed into{' '}
-            <span className="text-foreground font-semibold">{card.name}</span>.
+            Target evolves one stage forward. Select a same-line card to
+            consume for stat inheritance.
           </p>
         </div>
       </div>
 
-      {/* Target Card Display */}
       <div className="bg-card border border-border rounded-2xl p-5 space-y-4">
         <div className="flex items-center gap-4">
           <div className="w-16 h-16 rounded-xl bg-muted overflow-hidden flex items-center justify-center flex-shrink-0">
@@ -151,8 +374,7 @@ export default function EvolvePanel({
             </p>
 
             <p className="text-xs text-muted-foreground capitalize">
-              Lv.{playerCard.level || 1} · {card.rarity}
-              {finalForm ? ' · Final Form' : ''}
+              Lv.{playerCard.level || 1} · {card.rarity} · {targetStageLabel}
             </p>
 
             <div className="flex gap-1 mt-1.5">
@@ -170,35 +392,40 @@ export default function EvolvePanel({
           </div>
         </div>
 
-        {/* Stat comparison */}
         <div className="grid grid-cols-3 gap-2 text-center text-xs">
           {[
-            { label: 'ATK', base: card.base_attack, color: 'text-red-400' },
-            { label: 'DEF', base: card.base_defense, color: 'text-blue-400' },
-            { label: 'HP', base: card.base_hp, color: 'text-green-400' },
-          ].map(({ label, base, color }) => (
+            {
+              label: 'ATK',
+              current: getCurrentStat(playerCard, card, 'attack'),
+              next: previewStats?.attack,
+              color: 'text-red-400',
+            },
+            {
+              label: 'DEF',
+              current: getCurrentStat(playerCard, card, 'defense'),
+              next: previewStats?.defense,
+              color: 'text-blue-400',
+            },
+            {
+              label: 'HP',
+              current: getCurrentStat(playerCard, card, 'hp'),
+              next: previewStats?.hp,
+              color: 'text-green-400',
+            },
+          ].map(({ label, current, next, color }) => (
             <div key={label} className="bg-muted/40 rounded-lg p-2">
               <p className="text-muted-foreground text-[10px]">{label}</p>
-
-              <p className={`font-bold ${color}`}>
-                {Math.round((base || 0) * currentMult)}
-              </p>
-
-              {canEvolveMore && (
-                <p className="text-primary text-[10px]">
-                  → {Math.round((base || 0) * nextMult)}
-                </p>
-              )}
+              <p className={`font-bold ${color}`}>{current}</p>
+              {next && <p className="text-primary text-[10px]">→ {next}</p>}
             </div>
           ))}
         </div>
 
-        {/* Evolution progress */}
         <div className="space-y-1.5">
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>Evolution Progress</span>
             <span className="text-primary font-semibold">
-              {finalForm ? 'Final Form' : `${evolveCount} / ${MAX_EVOLVES}`}
+              {finalForm ? 'Final Form' : `${targetStageLabel} → ${nextStageLabel}`}
             </span>
           </div>
 
@@ -207,7 +434,7 @@ export default function EvolvePanel({
               className="h-full bg-primary rounded-full"
               initial={{ width: 0 }}
               animate={{
-                width: `${(Math.min(evolveCount, MAX_EVOLVES) / MAX_EVOLVES) * 100}%`,
+                width: `${(Math.min(targetStageCount, MAX_EVOLVES) / MAX_EVOLVES) * 100}%`,
               }}
               transition={{ duration: 0.6 }}
             />
@@ -215,7 +442,6 @@ export default function EvolvePanel({
         </div>
       </div>
 
-      {/* Requirements */}
       <div className="bg-muted/30 border border-border rounded-xl p-4 space-y-3">
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
           Requirements
@@ -223,17 +449,17 @@ export default function EvolvePanel({
 
         <div
           className={`flex items-center gap-3 text-sm ${
-            hasRequiredCopy ? 'text-green-400' : 'text-destructive'
+            validMaterials.length > 0 ? 'text-green-400' : 'text-destructive'
           }`}
         >
           <div
             className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-              hasRequiredCopy
+              validMaterials.length > 0
                 ? 'border-green-400 bg-green-400/20'
                 : 'border-destructive bg-destructive/10'
             }`}
           >
-            {hasRequiredCopy ? (
+            {validMaterials.length > 0 ? (
               <span className="text-[10px] font-black">✓</span>
             ) : (
               <span className="text-[10px] font-black">✗</span>
@@ -241,72 +467,54 @@ export default function EvolvePanel({
           </div>
 
           <span>
-            1× <strong>{card.name}</strong> duplicate
-            {hasRequiredCopy ? ` (${duplicates.length} available)` : ' — not owned'}
-          </span>
-        </div>
-
-        <div
-          className={`flex items-center gap-3 text-sm ${
-            canEvolveMore ? 'text-green-400' : 'text-muted-foreground'
-          }`}
-        >
-          <div
-            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-              canEvolveMore
-                ? 'border-green-400 bg-green-400/20'
-                : 'border-muted-foreground bg-muted'
-            }`}
-          >
-            {canEvolveMore ? (
-              <span className="text-[10px] font-black">✓</span>
-            ) : (
-              <span className="text-[10px] font-black">✗</span>
-            )}
-          </div>
-
-          <span>
-            Evolution limit not reached ({Math.min(evolveCount, MAX_EVOLVES)}/
-            {MAX_EVOLVES})
+            1× valid same-line material
+            {validMaterials.length > 0
+              ? ` (${validMaterials.length} available)`
+              : ' — not owned'}
           </span>
         </div>
       </div>
 
-      {/* Duplicate Selection */}
       {finalForm ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 rounded-xl p-3">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           <span>This card has reached Final Form and cannot evolve further.</span>
         </div>
-      ) : duplicates.length === 0 ? (
+      ) : validMaterials.length === 0 ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 rounded-xl p-3">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
-          <span>
-            You need another unlocked copy of {card.name} to evolve this card.
-          </span>
+          <span>You need a valid same-line card to evolve {card.name}.</span>
         </div>
       ) : (
         <div className="space-y-3">
           <div>
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Select Duplicate to Consume
+              Select Card to Consume
             </p>
 
             <p className="text-[10px] text-muted-foreground mt-1">
-              The selected duplicate will be permanently removed.
+              The target becomes {nextStageLabel}. The selected card only
+              contributes stats and will be permanently removed.
             </p>
           </div>
 
           <div className="grid grid-cols-3 gap-3">
-            {duplicates.map((item) => {
-              const duplicatePc = item.playerCard;
-              const isSelected = selectedDuplicateId === duplicatePc.id;
+            {validMaterials.map((item) => {
+              const materialPc = item.playerCard;
+              const materialStageCount = getOwnedCardStageCount(
+                item.playerCard,
+                item.card
+              );
+              const materialStage = getNextEvolutionStage(materialStageCount);
+              const materialStageLabel = formatStageLabel(materialStage);
+
+              const isSelected = selectedMaterialId === materialPc.id;
 
               return (
                 <button
-                  key={duplicatePc.id}
+                  key={materialPc.id}
                   type="button"
-                  onClick={() => setSelectedDuplicateId(duplicatePc.id)}
+                  onClick={() => setSelectedMaterialId(materialPc.id)}
                   className={`relative rounded-xl transition-all ${
                     isSelected
                       ? 'ring-2 ring-primary scale-[1.03]'
@@ -315,10 +523,14 @@ export default function EvolvePanel({
                 >
                   <GameCard
                     card={item.card}
-                    playerCard={duplicatePc}
+                    playerCard={materialPc}
                     size="sm"
                     showStats
                   />
+
+                  <div className="absolute left-1 right-1 bottom-1 rounded-md bg-black/70 px-1 py-0.5 text-[9px] text-white font-bold">
+                    {materialStageLabel} Material
+                  </div>
 
                   {isSelected && (
                     <div className="absolute inset-0 rounded-xl border-2 border-primary bg-primary/20 flex items-center justify-center pointer-events-none">
@@ -332,20 +544,57 @@ export default function EvolvePanel({
             })}
           </div>
 
-          {selectedDuplicate && (
+          {selectedMaterial && (
             <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 flex items-center gap-3">
               <Trash2 className="w-4 h-4 text-destructive flex-shrink-0" />
 
               <div className="min-w-0">
                 <p className="text-xs text-destructive font-semibold">
-                  This copy will be consumed:
+                  This card will be consumed:
                 </p>
 
                 <p className="text-[11px] text-muted-foreground truncate">
-                  {selectedDuplicate.card.name} · Lv.
-                  {selectedDuplicate.playerCard.level || 1}
+                  {selectedMaterial.card.name} · Lv.
+                  {selectedMaterial.playerCard.level || 1} ·{' '}
+                  {formatStageLabel(
+                    getNextEvolutionStage(
+                      getOwnedCardStageCount(
+                        selectedMaterial.playerCard,
+                        selectedMaterial.card
+                      )
+                    )
+                  )}
                 </p>
               </div>
+            </div>
+          )}
+
+          {previewStats && (
+            <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">
+              <p className="text-xs font-bold text-primary">
+                Evolution Preview
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Result: {targetStageLabel} → {nextStageLabel}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Consumed material:{' '}
+                {formatStageLabel(
+                  getNextEvolutionStage(
+                    getOwnedCardStageCount(
+                      selectedMaterial.playerCard,
+                      selectedMaterial.card
+                    )
+                  )
+                )}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Rate: {Math.round(rate * 100)}%
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                New Base: {previewStats.attack} ATK / {previewStats.defense} DEF
+                / {previewStats.hp} HP
+              </p>
             </div>
           )}
         </div>
@@ -360,8 +609,8 @@ export default function EvolvePanel({
         {disabled
           ? 'Evolving…'
           : canEvolve
-            ? `Evolve (${evolveCount + 1}/${MAX_EVOLVES})`
-            : 'Select Duplicate to Evolve'}
+            ? `Evolve to ${nextStageLabel}`
+            : 'Select Material to Evolve'}
       </Button>
     </div>
   );
