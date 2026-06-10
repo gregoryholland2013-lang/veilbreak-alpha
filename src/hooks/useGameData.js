@@ -12,6 +12,78 @@ async function getAuthUser() {
   return user;
 }
 
+async function ensureProfile(user) {
+  if (!user) return null;
+
+  const { data: existingProfile, error: profileError } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (profileError) {
+    throw profileError;
+  }
+
+  if (existingProfile) {
+    return existingProfile;
+  }
+
+  const now = new Date().toISOString();
+
+  const { data: createdProfile, error: createError } = await supabase
+    .from('profiles')
+    .insert({
+      id: user.id,
+      email: user.email,
+      display_name:
+        user.user_metadata?.full_name ||
+        user.user_metadata?.name ||
+        user.email?.split('@')[0] ||
+        'Adventurer',
+
+      level: 1,
+      experience: 0,
+      gold: 1000,
+      gems: 50,
+
+      stamina: 100,
+      max_stamina: 100,
+
+      attack_energy: 100,
+      max_attack_energy: 100,
+
+      defense_energy: 100,
+      max_defense_energy: 100,
+
+      wins: 0,
+      losses: 0,
+      quests_completed: 0,
+
+      stats_regen_at: now,
+      created_at: now,
+      updated_at: now,
+    })
+    .select()
+    .single();
+
+  if (createError) {
+    throw createError;
+  }
+
+  return createdProfile;
+}
+
+async function regenCurrentUserStats() {
+  const { data, error } = await supabase.rpc('regen_current_user_stats');
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
 export function useProfile() {
   return useQuery({
     queryKey: ['playerProfile'],
@@ -22,61 +94,20 @@ export function useProfile() {
         return null;
       }
 
-      const { data: existingProfile, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .maybeSingle();
+      await ensureProfile(user);
 
-      if (profileError) {
-        throw profileError;
-      }
-
-      if (!existingProfile) {
-        const now = new Date().toISOString();
-
-        const { error: createError } = await supabase
-          .from('profiles')
-          .insert({
-            id: user.id,
-            email: user.email,
-            display_name:
-              user.user_metadata?.full_name ||
-              user.user_metadata?.name ||
-              user.email?.split('@')[0] ||
-              'Adventurer',
-            level: 1,
-            experience: 0,
-            gold: 1000,
-            gems: 50,
-            stamina: 100,
-            max_stamina: 100,
-            attack_energy: 100,
-            max_attack_energy: 100,
-            defense_energy: 100,
-            max_defense_energy: 100,
-            wins: 0,
-            losses: 0,
-            quests_completed: 0,
-            stats_regen_at: now,
-            created_at: now,
-            updated_at: now,
-          });
-
-        if (createError) {
-          throw createError;
-        }
-      }
-
-      const { data: regeneratedProfile, error: regenError } = await supabase
-        .rpc('regen_current_user_stats');
-
-      if (regenError) {
-        throw regenError;
-      }
+      const regeneratedProfile = await regenCurrentUserStats();
 
       return regeneratedProfile;
     },
+
+    // Re-check once per minute so stamina/attack/defense visibly regen.
+    refetchInterval: 60 * 1000,
+
+    // Also regen when user tabs back into the game.
+    refetchOnWindowFocus: true,
+
+    staleTime: 0,
   });
 }
 
@@ -88,7 +119,7 @@ export function useCards() {
         .from('cards')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(200);
+        .limit(500);
 
       if (error) {
         throw error;
@@ -115,7 +146,7 @@ export function usePlayerCards() {
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
-        .limit(200);
+        .limit(500);
 
       if (error) {
         throw error;
