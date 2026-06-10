@@ -60,6 +60,45 @@ function formatStageLabel(stage) {
   return 'Base';
 }
 
+function normalizeStage(value) {
+  return String(value || '')
+    .toLowerCase()
+    .trim()
+    .replaceAll('+', '_plus')
+    .replaceAll(' ', '_')
+    .replaceAll('-', '_');
+}
+
+function getCardStage(card) {
+  const stage = normalizeStage(card?.evolution_stage);
+  const evoForm = normalizeStage(card?.evo_form);
+
+  if (stage) return stage;
+  if (evoForm) return evoForm;
+
+  return 'base';
+}
+
+function getCardLine(card) {
+  return String(card?.card_line || card?.name || card?.full_card_name || '')
+    .toLowerCase()
+    .trim();
+}
+
+function findNextStageCard({ cards, currentCard, nextStage }) {
+  const currentLine = getCardLine(currentCard);
+  const normalizedNextStage = normalizeStage(nextStage);
+
+  const candidates = cards.filter((candidate) => {
+    const sameLine = getCardLine(candidate) === currentLine;
+    const candidateStage = getCardStage(candidate);
+
+    return sameLine && candidateStage === normalizedNextStage;
+  });
+
+  return candidates.find((candidate) => candidate.image_url) || candidates[0] || null;
+}
+
 function isFinalForm(playerCard) {
   const stage = String(playerCard?.evolution_stage || '').toLowerCase();
 
@@ -326,202 +365,200 @@ export default function Enhance() {
   };
 
   // ── EVOLVE: consume one selected duplicate ──
-  const handleEvolve = async (duplicatePcId) => {
-    if (!selectedTarget) return;
+const handleEvolve = async (duplicatePcId) => {
+  if (!selectedTarget) return;
 
-    const { card, playerCard } = selectedTarget;
+  const { card, playerCard } = selectedTarget;
 
-    if (!duplicatePcId) {
-      toast.error('Select a duplicate to evolve');
+  if (!duplicatePcId) {
+    toast.error('Select a duplicate to evolve');
+    return;
+  }
+
+  if (duplicatePcId === playerCard.id) {
+    toast.error('You cannot consume the target card');
+    return;
+  }
+
+  if ((playerCard.evolve_count || 0) >= MAX_EVOLVES) {
+    toast.error(`${card.name} is already Final Form`);
+    return;
+  }
+
+  const duplicateItem = enrichedCards.find(
+    (item) => item.playerCard.id === duplicatePcId
+  );
+
+  if (!duplicateItem) {
+    toast.error('Could not find selected duplicate');
+    return;
+  }
+
+  const duplicatePlayerCard = duplicateItem.playerCard;
+  const duplicateCard = duplicateItem.card;
+
+  const sameCard =
+    duplicatePlayerCard.card_id === playerCard.card_id ||
+    duplicateCard.id === card.id;
+
+  if (!sameCard) {
+    toast.error('Selected card is not a valid duplicate');
+    return;
+  }
+
+  setProcessing(true);
+
+  try {
+    const now = new Date().toISOString();
+
+    const newEvolveCount = (playerCard.evolve_count || 0) + 1;
+    const nextStage = getNextEvolutionStage(newEvolveCount);
+    const nextStageLabel = formatStageLabel(nextStage);
+    const rate = getEvolutionRate(newEvolveCount);
+
+    const nextMasterCard = findNextStageCard({
+      cards,
+      currentCard: card,
+      nextStage,
+    });
+
+    if (!nextMasterCard) {
+      toast.error(
+        `Missing ${nextStageLabel} card art/master card for ${card.name}`
+      );
       return;
     }
 
-    if (duplicatePcId === playerCard.id) {
-      toast.error('You cannot consume the target card');
-      return;
-    }
+    const previousStageBaseAttack = getStageBaseStat(
+      playerCard,
+      card,
+      'attack'
+    );
+    const previousStageBaseDefense = getStageBaseStat(
+      playerCard,
+      card,
+      'defense'
+    );
+    const previousStageBaseHp = getStageBaseStat(playerCard, card, 'hp');
 
-    if ((playerCard.evolve_count || 0) >= MAX_EVOLVES) {
-      toast.error(`${card.name} is already Final Form`);
-      return;
-    }
+    const targetAttack = getCurrentStat(playerCard, card, 'attack');
+    const targetDefense = getCurrentStat(playerCard, card, 'defense');
+    const targetHp = getCurrentStat(playerCard, card, 'hp');
 
-    const duplicateItem = enrichedCards.find(
-      (item) => item.playerCard.id === duplicatePcId
+    const consumedAttack = getCurrentStat(
+      duplicatePlayerCard,
+      duplicateCard,
+      'attack'
+    );
+    const consumedDefense = getCurrentStat(
+      duplicatePlayerCard,
+      duplicateCard,
+      'defense'
+    );
+    const consumedHp = getCurrentStat(
+      duplicatePlayerCard,
+      duplicateCard,
+      'hp'
     );
 
-    if (!duplicateItem) {
-      toast.error('Could not find selected duplicate');
-      return;
+    const newStageBaseAttack = calculateEvolvedStat({
+      previousStageBase: previousStageBaseAttack,
+      targetCurrent: targetAttack,
+      consumedCurrent: consumedAttack,
+      rate,
+    });
+
+    const newStageBaseDefense = calculateEvolvedStat({
+      previousStageBase: previousStageBaseDefense,
+      targetCurrent: targetDefense,
+      consumedCurrent: consumedDefense,
+      rate,
+    });
+
+    const newStageBaseHp = calculateEvolvedStat({
+      previousStageBase: previousStageBaseHp,
+      targetCurrent: targetHp,
+      consumedCurrent: consumedHp,
+      rate,
+    });
+
+    const inheritedAttackGain = Math.max(
+      0,
+      newStageBaseAttack - previousStageBaseAttack
+    );
+
+    const inheritedDefenseGain = Math.max(
+      0,
+      newStageBaseDefense - previousStageBaseDefense
+    );
+
+    const inheritedHpGain = Math.max(
+      0,
+      newStageBaseHp - previousStageBaseHp
+    );
+
+    const { error: updateError } = await supabase
+      .from('player_cards')
+      .update({
+        // This is the artwork/stage fix.
+        card_id: nextMasterCard.id,
+
+        evolved: true,
+        evolve_count: newEvolveCount,
+        evolution_stage: nextStage,
+
+        stage_base_attack: newStageBaseAttack,
+        stage_base_defense: newStageBaseDefense,
+        stage_base_hp: newStageBaseHp,
+
+        attack: newStageBaseAttack,
+        defense: newStageBaseDefense,
+        hp: newStageBaseHp,
+        max_hp: newStageBaseHp,
+
+        inherited_attack:
+          (playerCard.inherited_attack || 0) + inheritedAttackGain,
+        inherited_defense:
+          (playerCard.inherited_defense || 0) + inheritedDefenseGain,
+        inherited_hp: (playerCard.inherited_hp || 0) + inheritedHpGain,
+
+        // New stage starts fresh from the newly created base.
+        level: 1,
+        experience: 0,
+
+        updated_at: now,
+      })
+      .eq('id', playerCard.id);
+
+    if (updateError) {
+      throw updateError;
     }
 
-    const duplicatePlayerCard = duplicateItem.playerCard;
-    const duplicateCard = duplicateItem.card;
+    const { error: deleteError } = await supabase
+      .from('player_cards')
+      .delete()
+      .eq('id', duplicatePcId);
 
-    const sameCard =
-      duplicatePlayerCard.card_id === playerCard.card_id ||
-      duplicateCard.id === card.id;
-
-    if (!sameCard) {
-      toast.error('Selected card is not a valid duplicate');
-      return;
+    if (deleteError) {
+      throw deleteError;
     }
 
-    setProcessing(true);
+    queryClient.invalidateQueries({ queryKey: ['playerCards'] });
 
-    try {
-      const now = new Date().toISOString();
+    toast.success(
+      newEvolveCount >= MAX_EVOLVES
+        ? `🌟 ${nextMasterCard.name || card.name} reached Final Form! New base: ${newStageBaseAttack} ATK / ${newStageBaseDefense} DEF / ${newStageBaseHp} HP.`
+        : `🌟 ${nextMasterCard.name || card.name} evolved to ${nextStageLabel}! New base: ${newStageBaseAttack} ATK / ${newStageBaseDefense} DEF / ${newStageBaseHp} HP.`
+    );
 
-      const newEvolveCount = (playerCard.evolve_count || 0) + 1;
-      const nextStage = getNextEvolutionStage(newEvolveCount);
-      const nextStageLabel = formatStageLabel(nextStage);
-      const rate = getEvolutionRate(newEvolveCount);
-
-      /**
-       * Previous stage created base.
-       * Base cards start from master card base stats.
-       * Base+ / Base++ use their previous stage_base stats.
-       */
-      const previousStageBaseAttack = getStageBaseStat(
-        playerCard,
-        card,
-        'attack'
-      );
-      const previousStageBaseDefense = getStageBaseStat(
-        playerCard,
-        card,
-        'defense'
-      );
-      const previousStageBaseHp = getStageBaseStat(playerCard, card, 'hp');
-
-      /**
-       * Current stats of target and consumed card.
-       * These include enhancement investment if the player enhanced them first.
-       */
-      const targetAttack = getCurrentStat(playerCard, card, 'attack');
-      const targetDefense = getCurrentStat(playerCard, card, 'defense');
-      const targetHp = getCurrentStat(playerCard, card, 'hp');
-
-      const consumedAttack = getCurrentStat(
-        duplicatePlayerCard,
-        duplicateCard,
-        'attack'
-      );
-      const consumedDefense = getCurrentStat(
-        duplicatePlayerCard,
-        duplicateCard,
-        'defense'
-      );
-      const consumedHp = getCurrentStat(duplicatePlayerCard, duplicateCard, 'hp');
-
-      /**
-       * Empirical exact formula:
-       *
-       * New Stage Base Stat =
-       * Previous Stage Created Base Stat
-       * + ((Target Current Stat + Consumed Current Stat) × Evolution Rate)
-       *
-       * Base → Base+ = 40%
-       * Base+ → Base++ = 45%
-       * Base++ → Final = 50%
-       */
-      const newStageBaseAttack = calculateEvolvedStat({
-        previousStageBase: previousStageBaseAttack,
-        targetCurrent: targetAttack,
-        consumedCurrent: consumedAttack,
-        rate,
-      });
-
-      const newStageBaseDefense = calculateEvolvedStat({
-        previousStageBase: previousStageBaseDefense,
-        targetCurrent: targetDefense,
-        consumedCurrent: consumedDefense,
-        rate,
-      });
-
-      const newStageBaseHp = calculateEvolvedStat({
-        previousStageBase: previousStageBaseHp,
-        targetCurrent: targetHp,
-        consumedCurrent: consumedHp,
-        rate,
-      });
-
-      const inheritedAttackGain = Math.max(
-        0,
-        newStageBaseAttack - previousStageBaseAttack
-      );
-
-      const inheritedDefenseGain = Math.max(
-        0,
-        newStageBaseDefense - previousStageBaseDefense
-      );
-
-      const inheritedHpGain = Math.max(0, newStageBaseHp - previousStageBaseHp);
-
-      /**
-       * Important:
-       * Evolution creates a new stage base and resets the card to Lv.1
-       * of that new stage. The player then enhances upward from there.
-       */
-      const { error: updateError } = await supabase
-        .from('player_cards')
-        .update({
-          evolved: true,
-          evolve_count: newEvolveCount,
-          evolution_stage: nextStage,
-
-          stage_base_attack: newStageBaseAttack,
-          stage_base_defense: newStageBaseDefense,
-          stage_base_hp: newStageBaseHp,
-
-          attack: newStageBaseAttack,
-          defense: newStageBaseDefense,
-          hp: newStageBaseHp,
-          max_hp: newStageBaseHp,
-
-          inherited_attack:
-            (playerCard.inherited_attack || 0) + inheritedAttackGain,
-          inherited_defense:
-            (playerCard.inherited_defense || 0) + inheritedDefenseGain,
-          inherited_hp: (playerCard.inherited_hp || 0) + inheritedHpGain,
-
-          // New stage starts fresh from the newly created base.
-          level: 1,
-          experience: 0,
-
-          updated_at: now,
-        })
-        .eq('id', playerCard.id);
-
-      if (updateError) {
-        throw updateError;
-      }
-
-      const { error: deleteError } = await supabase
-        .from('player_cards')
-        .delete()
-        .eq('id', duplicatePcId);
-
-      if (deleteError) {
-        throw deleteError;
-      }
-
-      queryClient.invalidateQueries({ queryKey: ['playerCards'] });
-
-      toast.success(
-        newEvolveCount >= MAX_EVOLVES
-          ? `🌟 ${card.name} reached Final Form! New base: ${newStageBaseAttack} ATK / ${newStageBaseDefense} DEF / ${newStageBaseHp} HP.`
-          : `🌟 ${card.name} evolved to ${nextStageLabel}! New base: ${newStageBaseAttack} ATK / ${newStageBaseDefense} DEF / ${newStageBaseHp} HP.`
-      );
-
-      resetFlow();
-    } catch (error) {
-      console.error(error);
-      toast.error(error.message || 'Could not evolve card');
-    } finally {
-      setProcessing(false);
-    }
-  };
+    resetFlow();
+  } catch (error) {
+    console.error(error);
+    toast.error(error.message || 'Could not evolve card');
+  } finally {
+    setProcessing(false);
+  }
+};
 
   const handleSelectTarget = (item, mode) => {
     if (processing) return;
