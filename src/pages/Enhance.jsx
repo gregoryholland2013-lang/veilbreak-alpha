@@ -17,6 +17,19 @@ import EvolvePanel from '@/components/enhance/EvolvePanel';
 
 const BASE_MAX_LEVEL = 10;
 const FINAL_FORM_MAX_LEVEL = 20;
+const MAX_EVOLVES = 3;
+
+// Current controlled stat growth after each created stage base.
+// Lv.1 = 100% of stage base.
+// Lv.10 = 190% of stage base.
+// Lv.20 = 290% of stage base.
+const STAT_GROWTH_PER_LEVEL = 0.1;
+
+const EVOLUTION_RATES = {
+  base_plus: 0.4, // Base → Base+
+  base_plus_plus: 0.45, // Base+ → Base++
+  final: 0.5, // Base++ → Final
+};
 
 // Card capacity per player level
 function cardCapacity(level) {
@@ -28,6 +41,25 @@ function xpToNextLevel(level) {
   return level * 50;
 }
 
+function getNextEvolutionStage(newEvolveCount) {
+  if (newEvolveCount >= 3) return 'final';
+  if (newEvolveCount === 2) return 'base_plus_plus';
+  if (newEvolveCount === 1) return 'base_plus';
+  return 'base';
+}
+
+function getEvolutionRate(newEvolveCount) {
+  const nextStage = getNextEvolutionStage(newEvolveCount);
+  return EVOLUTION_RATES[nextStage] || 0.4;
+}
+
+function formatStageLabel(stage) {
+  if (stage === 'base_plus') return 'Base+';
+  if (stage === 'base_plus_plus') return 'Base++';
+  if (stage === 'final') return 'Final Form';
+  return 'Base';
+}
+
 function isFinalForm(playerCard) {
   const stage = String(playerCard?.evolution_stage || '').toLowerCase();
 
@@ -35,7 +67,7 @@ function isFinalForm(playerCard) {
     stage === 'final' ||
     stage === 'final_form' ||
     stage === 'final form' ||
-    Number(playerCard?.evolve_count || 0) >= 3
+    Number(playerCard?.evolve_count || 0) >= MAX_EVOLVES
   );
 }
 
@@ -45,6 +77,114 @@ function getCardMaxLevel(playerCard) {
 
 function isCardMaxed(playerCard) {
   return Number(playerCard?.level || 1) >= getCardMaxLevel(playerCard);
+}
+
+function getMasterBaseStat(card, stat) {
+  if (stat === 'attack') return Number(card?.base_attack || 0);
+  if (stat === 'defense') return Number(card?.base_defense || 0);
+  if (stat === 'hp') return Number(card?.base_hp || 0);
+  return 0;
+}
+
+function getStageBaseStat(playerCard, card, stat) {
+  if (stat === 'attack') {
+    return Number(playerCard?.stage_base_attack ?? card?.base_attack ?? 0);
+  }
+
+  if (stat === 'defense') {
+    return Number(playerCard?.stage_base_defense ?? card?.base_defense ?? 0);
+  }
+
+  if (stat === 'hp') {
+    return Number(playerCard?.stage_base_hp ?? card?.base_hp ?? 0);
+  }
+
+  return 0;
+}
+
+function getCurrentStat(playerCard, card, stat) {
+  if (stat === 'attack') {
+    return Number(
+      playerCard?.attack ??
+        playerCard?.stage_base_attack ??
+        card?.base_attack ??
+        0
+    );
+  }
+
+  if (stat === 'defense') {
+    return Number(
+      playerCard?.defense ??
+        playerCard?.stage_base_defense ??
+        card?.base_defense ??
+        0
+    );
+  }
+
+  if (stat === 'hp') {
+    return Number(
+      playerCard?.hp ??
+        playerCard?.max_hp ??
+        playerCard?.stage_base_hp ??
+        card?.base_hp ??
+        0
+    );
+  }
+
+  return 0;
+}
+
+function levelMultiplier(level) {
+  return 1 + (Math.max(1, Number(level || 1)) - 1) * STAT_GROWTH_PER_LEVEL;
+}
+
+function calculateEnhancedStat(stageBase, level) {
+  return Math.round(Number(stageBase || 0) * levelMultiplier(level));
+}
+
+function calculateEvolvedStat({
+  previousStageBase,
+  targetCurrent,
+  consumedCurrent,
+  rate,
+}) {
+  return Math.round(
+    Number(previousStageBase || 0) +
+      (Number(targetCurrent || 0) + Number(consumedCurrent || 0)) *
+        Number(rate || 0)
+  );
+}
+
+function buildEnhanceStats({ card, playerCard, newLevel, levelsGained }) {
+  const currentAttack = getCurrentStat(playerCard, card, 'attack');
+  const currentDefense = getCurrentStat(playerCard, card, 'defense');
+  const currentHp = getCurrentStat(playerCard, card, 'hp');
+
+  const stageBaseAttack = getStageBaseStat(playerCard, card, 'attack');
+  const stageBaseDefense = getStageBaseStat(playerCard, card, 'defense');
+  const stageBaseHp = getStageBaseStat(playerCard, card, 'hp');
+
+  const calculatedAttack = calculateEnhancedStat(stageBaseAttack, newLevel);
+  const calculatedDefense = calculateEnhancedStat(stageBaseDefense, newLevel);
+  const calculatedHp = calculateEnhancedStat(stageBaseHp, newLevel);
+
+  // Never let enhancement reduce stats.
+  // If the card gained no level, stats stay unchanged.
+  if (levelsGained <= 0) {
+    return {
+      attack: currentAttack,
+      defense: currentDefense,
+      hp: currentHp,
+      max_hp: currentHp,
+    };
+  }
+
+  return {
+    attack: Math.max(currentAttack, calculatedAttack),
+    defense: Math.max(currentDefense, calculatedDefense),
+    hp: Math.max(currentHp, calculatedHp),
+    max_hp: Math.max(currentHp, calculatedHp),
+  };
 }
 
 export default function Enhance() {
@@ -120,11 +260,34 @@ export default function Enhance() {
 
       const levelsGained = newLevel - currentLevel;
 
+      const enhancedStats = buildEnhanceStats({
+        card,
+        playerCard,
+        newLevel,
+        levelsGained,
+      });
+
       const { error: updateError } = await supabase
         .from('player_cards')
         .update({
           level: newLevel,
           experience: newXp,
+
+          attack: enhancedStats.attack,
+          defense: enhancedStats.defense,
+          hp: enhancedStats.hp,
+          max_hp: enhancedStats.max_hp,
+
+          // If these are missing on older cards, preserve/repair them now.
+          stage_base_attack:
+            playerCard.stage_base_attack ?? card.base_attack ?? enhancedStats.attack,
+          stage_base_defense:
+            playerCard.stage_base_defense ??
+            card.base_defense ??
+            enhancedStats.defense,
+          stage_base_hp:
+            playerCard.stage_base_hp ?? card.base_hp ?? enhancedStats.hp,
+
           updated_at: now,
         })
         .eq('id', playerCard.id);
@@ -162,7 +325,7 @@ export default function Enhance() {
     }
   };
 
-  // ── EVOLVE: consume one duplicate ──
+  // ── EVOLVE: consume one selected duplicate ──
   const handleEvolve = async (duplicatePcId) => {
     if (!selectedTarget) return;
 
@@ -178,21 +341,154 @@ export default function Enhance() {
       return;
     }
 
+    if ((playerCard.evolve_count || 0) >= MAX_EVOLVES) {
+      toast.error(`${card.name} is already Final Form`);
+      return;
+    }
+
+    const duplicateItem = enrichedCards.find(
+      (item) => item.playerCard.id === duplicatePcId
+    );
+
+    if (!duplicateItem) {
+      toast.error('Could not find selected duplicate');
+      return;
+    }
+
+    const duplicatePlayerCard = duplicateItem.playerCard;
+    const duplicateCard = duplicateItem.card;
+
+    const sameCard =
+      duplicatePlayerCard.card_id === playerCard.card_id ||
+      duplicateCard.id === card.id;
+
+    if (!sameCard) {
+      toast.error('Selected card is not a valid duplicate');
+      return;
+    }
+
     setProcessing(true);
 
     try {
       const now = new Date().toISOString();
-      const newEvolveCount = (playerCard.evolve_count || 0) + 1;
-      const becomesFinal = newEvolveCount >= 3;
 
+      const newEvolveCount = (playerCard.evolve_count || 0) + 1;
+      const nextStage = getNextEvolutionStage(newEvolveCount);
+      const nextStageLabel = formatStageLabel(nextStage);
+      const rate = getEvolutionRate(newEvolveCount);
+
+      /**
+       * Previous stage created base.
+       * Base cards start from master card base stats.
+       * Base+ / Base++ use their previous stage_base stats.
+       */
+      const previousStageBaseAttack = getStageBaseStat(
+        playerCard,
+        card,
+        'attack'
+      );
+      const previousStageBaseDefense = getStageBaseStat(
+        playerCard,
+        card,
+        'defense'
+      );
+      const previousStageBaseHp = getStageBaseStat(playerCard, card, 'hp');
+
+      /**
+       * Current stats of target and consumed card.
+       * These include enhancement investment if the player enhanced them first.
+       */
+      const targetAttack = getCurrentStat(playerCard, card, 'attack');
+      const targetDefense = getCurrentStat(playerCard, card, 'defense');
+      const targetHp = getCurrentStat(playerCard, card, 'hp');
+
+      const consumedAttack = getCurrentStat(
+        duplicatePlayerCard,
+        duplicateCard,
+        'attack'
+      );
+      const consumedDefense = getCurrentStat(
+        duplicatePlayerCard,
+        duplicateCard,
+        'defense'
+      );
+      const consumedHp = getCurrentStat(duplicatePlayerCard, duplicateCard, 'hp');
+
+      /**
+       * Empirical exact formula:
+       *
+       * New Stage Base Stat =
+       * Previous Stage Created Base Stat
+       * + ((Target Current Stat + Consumed Current Stat) × Evolution Rate)
+       *
+       * Base → Base+ = 40%
+       * Base+ → Base++ = 45%
+       * Base++ → Final = 50%
+       */
+      const newStageBaseAttack = calculateEvolvedStat({
+        previousStageBase: previousStageBaseAttack,
+        targetCurrent: targetAttack,
+        consumedCurrent: consumedAttack,
+        rate,
+      });
+
+      const newStageBaseDefense = calculateEvolvedStat({
+        previousStageBase: previousStageBaseDefense,
+        targetCurrent: targetDefense,
+        consumedCurrent: consumedDefense,
+        rate,
+      });
+
+      const newStageBaseHp = calculateEvolvedStat({
+        previousStageBase: previousStageBaseHp,
+        targetCurrent: targetHp,
+        consumedCurrent: consumedHp,
+        rate,
+      });
+
+      const inheritedAttackGain = Math.max(
+        0,
+        newStageBaseAttack - previousStageBaseAttack
+      );
+
+      const inheritedDefenseGain = Math.max(
+        0,
+        newStageBaseDefense - previousStageBaseDefense
+      );
+
+      const inheritedHpGain = Math.max(0, newStageBaseHp - previousStageBaseHp);
+
+      /**
+       * Important:
+       * Evolution creates a new stage base and resets the card to Lv.1
+       * of that new stage. The player then enhances upward from there.
+       */
       const { error: updateError } = await supabase
         .from('player_cards')
         .update({
           evolved: true,
           evolve_count: newEvolveCount,
-          evolution_stage: becomesFinal 
-            ? 'final' 
-            : playerCard.evolution_stage || 'base',
+          evolution_stage: nextStage,
+
+          stage_base_attack: newStageBaseAttack,
+          stage_base_defense: newStageBaseDefense,
+          stage_base_hp: newStageBaseHp,
+
+          attack: newStageBaseAttack,
+          defense: newStageBaseDefense,
+          hp: newStageBaseHp,
+          max_hp: newStageBaseHp,
+
+          inherited_attack:
+            (playerCard.inherited_attack || 0) + inheritedAttackGain,
+          inherited_defense:
+            (playerCard.inherited_defense || 0) + inheritedDefenseGain,
+          inherited_hp: (playerCard.inherited_hp || 0) + inheritedHpGain,
+
+          // New stage starts fresh from the newly created base.
+          level: 1,
+          experience: 0,
+
           updated_at: now,
         })
         .eq('id', playerCard.id);
@@ -213,9 +509,9 @@ export default function Enhance() {
       queryClient.invalidateQueries({ queryKey: ['playerCards'] });
 
       toast.success(
-        becomesFinal
-          ? `🌟 ${card.name} reached Final Form! Max level increased to ${FINAL_FORM_MAX_LEVEL}.`
-          : `🌟 ${card.name} evolved! (${newEvolveCount}/3)`
+        newEvolveCount >= MAX_EVOLVES
+          ? `🌟 ${card.name} reached Final Form! New base: ${newStageBaseAttack} ATK / ${newStageBaseDefense} DEF / ${newStageBaseHp} HP.`
+          : `🌟 ${card.name} evolved to ${nextStageLabel}! New base: ${newStageBaseAttack} ATK / ${newStageBaseDefense} DEF / ${newStageBaseHp} HP.`
       );
 
       resetFlow();
@@ -307,11 +603,21 @@ export default function Enhance() {
           </div>
         )}
 
-        <div className="rounded-xl border border-border bg-card p-3">
+        <div className="rounded-xl border border-border bg-card p-3 space-y-1">
           <p className="text-xs font-bold text-primary">Enhancement Caps</p>
-          <p className="text-[11px] text-muted-foreground mt-1">
-            Base cards max at Lv.{BASE_MAX_LEVEL}. Final Form cards max at
-            Lv.{FINAL_FORM_MAX_LEVEL}. Maxed cards no longer gain XP or stats.
+          <p className="text-[11px] text-muted-foreground">
+            Base, Base+, and Base++ cards max at Lv.{BASE_MAX_LEVEL}. Final
+            Form cards max at Lv.{FINAL_FORM_MAX_LEVEL}. Maxed cards no longer
+            gain XP or stats.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 space-y-1">
+          <p className="text-xs font-bold text-primary">Evolution Inheritance</p>
+          <p className="text-[11px] text-muted-foreground">
+            New stage base = previous stage base + percentage of the target and
+            consumed card’s current stats. Base→Base+ uses 40%, Base+→Base++
+            uses 45%, and Base++→Final uses 50%.
           </p>
         </div>
 
@@ -348,7 +654,8 @@ export default function Enhance() {
                       </h2>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         Select a card with a duplicate in your collection.
-                        Final Form cards can reach Lv.{FINAL_FORM_MAX_LEVEL}.
+                        Investment in both cards affects the next stage’s base
+                        stats.
                       </p>
                     </div>
 
