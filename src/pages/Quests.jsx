@@ -24,6 +24,7 @@ import {
   useUpdateProfile,
 } from '@/hooks/useGameData';
 import { Button } from '@/components/ui/button';
+import ExpeditionActionModal from '@/components/expeditions/ExpeditionActionModal';
 
 const QUEST_BG =
   'https://media.base44.com/images/public/69e667952dab314dabbd3859/2b48825a0_generated_image.png';
@@ -323,6 +324,7 @@ export default function Quests() {
   const [activeChoiceNode, setActiveChoiceNode] = useState(null);
   const [lastResult, setLastResult] = useState(null);
   const [processingNodeId, setProcessingNodeId] = useState(null);
+  const [activeActionNode, setActiveActionNode] = useState(null);
 
   useEffect(() => {
     const channel = supabase
@@ -676,7 +678,31 @@ export default function Quests() {
     return levelUp;
   };
 
-  const resolveNode = async (node) => {
+const startNode = (node) => {
+  if (!profile || !userId) {
+    toast.error('Profile is still loading');
+    return;
+  }
+
+  if (!isNodeUnlocked(node)) {
+    toast.error('This expedition node is locked');
+    return;
+  }
+
+  if ((profile.stamina || 0) < (node.stamina_cost || 0)) {
+    toast.error('Not enough stamina');
+    return;
+  }
+
+  if (node.node_type === 'choice') {
+    setActiveChoiceNode(node);
+    return;
+  }
+
+  setActiveActionNode(node);
+};
+
+  const resolveNode = async (node, actionResult = {}) => {
     if (!profile || !userId) {
       toast.error('Profile is still loading');
       return;
@@ -730,9 +756,14 @@ export default function Quests() {
           enemyPower = Math.round(enemyPower * 1.12);
         }
 
+        const actionBonus = Number(actionResult?.bonus || 0);
+        
         const winChance = Math.max(
           0.25,
-          Math.min(0.9, ownedDeckPower.total / (ownedDeckPower.total + enemyPower) + 0.08)
+          Math.min(
+            0.92,
+            ownedDeckPower.total / (ownedDeckPower.total + enemyPower) + 0.08 + actionBonus
+          )
         );
 
         victory = Math.random() <= winChance;
@@ -756,6 +787,9 @@ export default function Quests() {
 
         setLastResult({
           title: 'Expedition Failed',
+          message: actionResult?.label
+          ? `${message} Action: ${actionResult.taps}/${actionResult.requiredTaps} charged.`
+          : message,
           message,
           victory: false,
           enemyName: enemyData.name,
@@ -784,7 +818,9 @@ export default function Quests() {
             : node.node_type === 'treasure'
               ? 'Cache Recovered'
               : 'Expedition Complete',
-        message,
+        message: actionResult?.label
+          ? `${message} Action: ${actionResult.taps}/${actionResult.requiredTaps} charged.`
+          : message,
         victory: true,
         levelUp,
         questName: node.title,
@@ -1081,7 +1117,7 @@ export default function Quests() {
                           <Button
                             size="sm"
                             disabled={!unlocked || processing}
-                            onClick={() => resolveNode(node)}
+                            onClick={() => startNode(node)}
                             className="gap-1"
                           >
                             {processing ? (
@@ -1145,6 +1181,20 @@ export default function Quests() {
           </>
         )}
       </div>
+      
+      <ExpeditionActionModal
+        node={activeActionNode}
+        open={!!activeActionNode}
+        onClose={() => setActiveActionNode(null)}
+        onComplete={(actionResult) => {
+          const nodeToResolve = activeActionNode;
+          setActiveActionNode(null);
+          
+          if (nodeToResolve) {
+            resolveNode(nodeToResolve, actionResult);
+          }
+          }}
+          />
 
       <ChoiceModal
         node={activeChoiceNode}
