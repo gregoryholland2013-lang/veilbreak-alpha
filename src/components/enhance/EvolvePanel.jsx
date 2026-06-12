@@ -10,6 +10,11 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import GameCard from '@/components/game/GameCard';
+import CardOrganizerControls from '@/components/enhance/CardOrganizerControls';
+import {
+  getCardFilterOptions,
+  organizeCards,
+} from '@/utils/cardOrganization';
 
 const elementIcons = {
   fire: '🔥',
@@ -210,21 +215,27 @@ export default function EvolvePanel({
   disabled,
 }) {
   const [selectedMaterialId, setSelectedMaterialId] = useState(null);
+  const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState('total_desc');
+  const [filters, setFilters] = useState({
+    rarity: 'all',
+    faction: 'all',
+    stage: 'all',
+    line: 'all',
+  });
 
   const card = target?.card || null;
   const playerCard = target?.playerCard || null;
 
-  const targetStageCount = card && playerCard
-    ? getOwnedCardStageCount(playerCard, card)
-    : 0;
+  const targetStageCount =
+    card && playerCard ? getOwnedCardStageCount(playerCard, card) : 0;
 
   const targetStage = getNextEvolutionStage(targetStageCount);
   const targetStageLabel = formatStageLabel(targetStage);
   const finalForm = card && playerCard ? isFinalForm(playerCard, card) : false;
 
-  const nextEvolveCount = card && playerCard
-    ? getNextEvolveCountFromTarget(playerCard, card)
-    : 0;
+  const nextEvolveCount =
+    card && playerCard ? getNextEvolveCountFromTarget(playerCard, card) : 0;
 
   const nextStage = getNextEvolutionStage(nextEvolveCount);
   const nextStageLabel = formatStageLabel(nextStage);
@@ -237,6 +248,20 @@ export default function EvolvePanel({
       return isValidEvolutionMaterial(playerCard, card, pc, candidateCard);
     });
   }, [enrichedCards, card, playerCard]);
+
+  const filterOptions = useMemo(() => {
+    return getCardFilterOptions(validMaterials);
+  }, [validMaterials]);
+
+  const organizedValidMaterials = useMemo(() => {
+    return organizeCards(validMaterials, {
+      sortBy,
+      filters: {
+        ...filters,
+        search,
+      },
+    });
+  }, [validMaterials, sortBy, filters, search]);
 
   const selectedMaterial = validMaterials.find(
     (item) => item.playerCard.id === selectedMaterialId
@@ -307,10 +332,10 @@ export default function EvolvePanel({
   );
 
   const canEvolve =
-    !finalForm && validMaterials.length > 0 && Boolean(selectedMaterialId);
+    !finalForm && validMaterials.length > 0 && Boolean(selectedMaterial);
 
   const confirmEvolve = () => {
-    if (!selectedMaterialId) return;
+    if (!selectedMaterial) return;
     onEvolve?.(selectedMaterialId);
   };
 
@@ -336,6 +361,7 @@ export default function EvolvePanel({
           onClick={onBack}
           className="w-8 h-8 rounded-lg bg-muted/50 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
           type="button"
+          disabled={disabled}
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
@@ -425,7 +451,9 @@ export default function EvolvePanel({
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>Evolution Progress</span>
             <span className="text-primary font-semibold">
-              {finalForm ? 'Final Form' : `${targetStageLabel} → ${nextStageLabel}`}
+              {finalForm
+                ? 'Final Form'
+                : `${targetStageLabel} → ${nextStageLabel}`}
             </span>
           </div>
 
@@ -434,7 +462,10 @@ export default function EvolvePanel({
               className="h-full bg-primary rounded-full"
               initial={{ width: 0 }}
               animate={{
-                width: `${(Math.min(targetStageCount, MAX_EVOLVES) / MAX_EVOLVES) * 100}%`,
+                width: `${
+                  (Math.min(targetStageCount, MAX_EVOLVES) / MAX_EVOLVES) *
+                  100
+                }%`,
               }}
               transition={{ duration: 0.6 }}
             />
@@ -498,8 +529,19 @@ export default function EvolvePanel({
             </p>
           </div>
 
+          <CardOrganizerControls
+            search={search}
+            setSearch={setSearch}
+            sortBy={sortBy}
+            setSortBy={setSortBy}
+            filters={filters}
+            setFilters={setFilters}
+            filterOptions={filterOptions}
+            compact
+          />
+
           <div className="grid grid-cols-3 gap-3">
-            {validMaterials.map((item) => {
+            {organizedValidMaterials.map((item) => {
               const materialPc = item.playerCard;
               const materialStageCount = getOwnedCardStageCount(
                 item.playerCard,
@@ -507,14 +549,18 @@ export default function EvolvePanel({
               );
               const materialStage = getNextEvolutionStage(materialStageCount);
               const materialStageLabel = formatStageLabel(materialStage);
-
               const isSelected = selectedMaterialId === materialPc.id;
 
               return (
                 <button
                   key={materialPc.id}
                   type="button"
-                  onClick={() => setSelectedMaterialId(materialPc.id)}
+                  disabled={disabled}
+                  onClick={() => {
+                    if (!disabled) {
+                      setSelectedMaterialId(materialPc.id);
+                    }
+                  }}
                   className={`relative rounded-xl transition-all ${
                     isSelected
                       ? 'ring-2 ring-primary scale-[1.03]'
@@ -543,6 +589,12 @@ export default function EvolvePanel({
               );
             })}
           </div>
+
+          {organizedValidMaterials.length === 0 && validMaterials.length > 0 && (
+            <p className="text-center text-muted-foreground py-6 text-sm">
+              No evolution materials match your filters.
+            </p>
+          )}
 
           {selectedMaterial && (
             <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 flex items-center gap-3">
@@ -574,9 +626,11 @@ export default function EvolvePanel({
               <p className="text-xs font-bold text-primary">
                 Evolution Preview
               </p>
+
               <p className="text-[11px] text-muted-foreground mt-1">
                 Result: {targetStageLabel} → {nextStageLabel}
               </p>
+
               <p className="text-[11px] text-muted-foreground">
                 Consumed material:{' '}
                 {formatStageLabel(
@@ -588,9 +642,11 @@ export default function EvolvePanel({
                   )
                 )}
               </p>
+
               <p className="text-[11px] text-muted-foreground">
                 Rate: {Math.round(rate * 100)}%
               </p>
+
               <p className="text-[11px] text-muted-foreground">
                 New Base: {previewStats.attack} ATK / {previewStats.defense} DEF
                 / {previewStats.hp} HP
