@@ -1,6 +1,15 @@
 import React, { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Trash2, Check, Edit3 } from 'lucide-react';
+import {
+  Plus,
+  Trash2,
+  Check,
+  Edit3,
+  Sword,
+  Shield,
+  Heart,
+  Search,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useCards, usePlayerCards, useDecks } from '@/hooks/useGameData';
@@ -23,9 +32,67 @@ async function getAuthUser() {
   return user;
 }
 
+function getOwnedCardStat(playerCard, card, stat) {
+  if (stat === 'attack') {
+    return Number(
+      playerCard?.attack ??
+        playerCard?.stage_base_attack ??
+        card?.base_attack ??
+        0
+    );
+  }
+
+  if (stat === 'defense') {
+    return Number(
+      playerCard?.defense ??
+        playerCard?.stage_base_defense ??
+        card?.base_defense ??
+        0
+    );
+  }
+
+  if (stat === 'hp') {
+    return Number(
+      playerCard?.hp ??
+        playerCard?.max_hp ??
+        playerCard?.stage_base_hp ??
+        card?.base_hp ??
+        0
+    );
+  }
+
+  return 0;
+}
+
+function getOwnedCardStats(playerCard, card) {
+  const attack = getOwnedCardStat(playerCard, card, 'attack');
+  const defense = getOwnedCardStat(playerCard, card, 'defense');
+  const hp = getOwnedCardStat(playerCard, card, 'hp');
+
+  return {
+    attack,
+    defense,
+    hp,
+    total: attack + defense + hp,
+  };
+}
+
+function getStageLabel(playerCard) {
+  const count = Number(playerCard?.evolve_count || 0);
+
+  if (count >= 3) return 'Final';
+  if (count === 2) return 'Base++';
+  if (count === 1) return 'Base+';
+
+  return 'Base';
+}
+
 export default function DeckBuilder() {
   const { data: cards = [], isLoading: cardsLoading } = useCards();
-  const { data: playerCards = [], isLoading: playerCardsLoading } = usePlayerCards();
+  const {
+    data: playerCards = [],
+    isLoading: playerCardsLoading,
+  } = usePlayerCards();
   const { data: decks = [], isLoading: decksLoading } = useDecks();
 
   const queryClient = useQueryClient();
@@ -34,15 +101,77 @@ export default function DeckBuilder() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [editingDeckId, setEditingDeckId] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
 
   const enriched = useMemo(() => {
     return playerCards
       .map((pc) => {
         const card = cards.find((c) => c.id === pc.card_id);
-        return card ? { card, playerCard: pc } : null;
+
+        if (!card) return null;
+
+        const stats = getOwnedCardStats(pc, card);
+
+        return {
+          card,
+          playerCard: pc,
+          stats,
+          stageLabel: getStageLabel(pc),
+        };
       })
-      .filter(Boolean);
+      .filter(Boolean)
+      .sort((a, b) => {
+        if (b.stats.total !== a.stats.total) {
+          return b.stats.total - a.stats.total;
+        }
+
+        if ((b.playerCard.level || 1) !== (a.playerCard.level || 1)) {
+          return (b.playerCard.level || 1) - (a.playerCard.level || 1);
+        }
+
+        return String(a.card.name || '').localeCompare(String(b.card.name || ''));
+      });
   }, [cards, playerCards]);
+
+  const filteredCards = useMemo(() => {
+    const value = search.trim().toLowerCase();
+
+    if (!value) return enriched;
+
+    return enriched.filter(({ card, stageLabel }) => {
+      return (
+        String(card.name || '').toLowerCase().includes(value) ||
+        String(card.rarity || '').toLowerCase().includes(value) ||
+        String(card.element || '').toLowerCase().includes(value) ||
+        String(stageLabel || '').toLowerCase().includes(value)
+      );
+    });
+  }, [enriched, search]);
+
+  const selectedCards = useMemo(() => {
+    return selectedIds
+      .map((id) => enriched.find((item) => item.playerCard.id === id))
+      .filter(Boolean);
+  }, [selectedIds, enriched]);
+
+  const selectedStats = useMemo(() => {
+    return selectedCards.reduce(
+      (sum, item) => {
+        return {
+          attack: sum.attack + item.stats.attack,
+          defense: sum.defense + item.stats.defense,
+          hp: sum.hp + item.stats.hp,
+          total: sum.total + item.stats.total,
+        };
+      },
+      {
+        attack: 0,
+        defense: 0,
+        hp: 0,
+        total: 0,
+      }
+    );
+  }, [selectedCards]);
 
   const resetForm = () => {
     setDeckName('');
@@ -221,7 +350,14 @@ export default function DeckBuilder() {
   const editDeck = (deck) => {
     setEditingDeckId(deck.id);
     setDeckName(deck.name || '');
-    setSelectedIds(deck.card_ids || []);
+
+    const validPlayerCardIds = new Set(enriched.map((item) => item.playerCard.id));
+
+    const deckIds = Array.isArray(deck.card_ids) ? deck.card_ids : [];
+
+    const normalizedIds = deckIds.filter((id) => validPlayerCardIds.has(id));
+
+    setSelectedIds(normalizedIds);
   };
 
   const isLoading = cardsLoading || playerCardsLoading || decksLoading;
@@ -243,7 +379,6 @@ export default function DeckBuilder() {
           </div>
         )}
 
-        {/* Deck Form */}
         <div className="bg-card rounded-xl border border-border p-4 space-y-3">
           <Input
             placeholder="Deck name..."
@@ -252,33 +387,52 @@ export default function DeckBuilder() {
             className="font-display"
           />
 
-          <p className="text-xs text-muted-foreground">
-            Selected: {selectedIds.length} / {MAX_DECK_SIZE}
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              Selected: {selectedIds.length} / {MAX_DECK_SIZE}
+            </p>
 
-          {/* Selected Preview */}
+            <p className="text-xs text-primary font-bold">
+              Power {selectedStats.total}
+            </p>
+          </div>
+
+          {selectedIds.length > 0 && (
+            <div className="grid grid-cols-3 gap-2 rounded-xl border border-border bg-muted/20 p-3 text-xs">
+              <div className="flex items-center gap-1 text-red-400 font-bold">
+                <Sword className="w-3.5 h-3.5" />
+                {selectedStats.attack}
+              </div>
+
+              <div className="flex items-center gap-1 text-blue-400 font-bold">
+                <Shield className="w-3.5 h-3.5" />
+                {selectedStats.defense}
+              </div>
+
+              <div className="flex items-center gap-1 text-green-400 font-bold">
+                <Heart className="w-3.5 h-3.5" />
+                {selectedStats.hp}
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-2 flex-wrap min-h-[50px]">
-            {selectedIds.map((id) => {
-              const item = enriched.find((e) => e.playerCard.id === id);
-
-              if (!item) return null;
-
-              return (
-                <motion.div
-                  key={id}
-                  layout
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                >
-                  <GameCard
-                    card={item.card}
-                    playerCard={item.playerCard}
-                    size="sm"
-                    onClick={() => toggleCard(id)}
-                  />
-                </motion.div>
-              );
-            })}
+            {selectedCards.map((item) => (
+              <motion.div
+                key={item.playerCard.id}
+                layout
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+              >
+                <GameCard
+                  card={item.card}
+                  playerCard={item.playerCard}
+                  size="sm"
+                  showStats
+                  onClick={() => toggleCard(item.playerCard.id)}
+                />
+              </motion.div>
+            ))}
           </div>
 
           <Button
@@ -306,32 +460,60 @@ export default function DeckBuilder() {
           )}
         </div>
 
-        {/* Available Cards */}
         <div>
-          <h2 className="text-sm font-semibold mb-2">Your Cards</h2>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-semibold">Your Cards</h2>
+
+            <p className="text-[10px] text-muted-foreground">
+              Sorted by current power
+            </p>
+          </div>
+
+          <div className="relative mb-3">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search cards, rarity, element, evolution..."
+              className="pl-9 h-9 text-sm"
+            />
+          </div>
 
           <div className="grid grid-cols-4 gap-2">
-            {enriched.map(({ card, playerCard }) => (
-              <div key={playerCard.id} className="relative">
-                <GameCard
-                  card={card}
-                  playerCard={playerCard}
-                  size="sm"
-                  showStats={false}
-                  onClick={() => toggleCard(playerCard.id)}
-                />
+            {filteredCards.map(({ card, playerCard, stats }) => {
+              const selected = selectedIds.includes(playerCard.id);
 
-                {selectedIds.includes(playerCard.id) && (
-                  <div className="absolute inset-0 bg-primary/20 rounded-xl border-2 border-primary flex items-center justify-center pointer-events-none">
-                    <Check className="w-6 h-6 text-primary" />
+              return (
+                <div key={playerCard.id} className="relative">
+                  <GameCard
+                    card={card}
+                    playerCard={playerCard}
+                    size="sm"
+                    showStats
+                    onClick={() => toggleCard(playerCard.id)}
+                  />
+
+                  <div className="absolute left-1 right-1 bottom-1 rounded-md bg-black/70 px-1 py-0.5 text-[8px] text-center text-white pointer-events-none">
+                    Power {stats.total}
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {selected && (
+                    <div className="absolute inset-0 bg-primary/20 rounded-xl border-2 border-primary flex items-center justify-center pointer-events-none">
+                      <Check className="w-6 h-6 text-primary" />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
+
+          {filteredCards.length === 0 && (
+            <div className="rounded-xl border border-border bg-card p-5 text-center text-sm text-muted-foreground">
+              No cards match your search.
+            </div>
+          )}
         </div>
 
-        {/* Saved Decks */}
         <div className="space-y-3">
           <h2 className="text-sm font-semibold">Saved Decks</h2>
 
