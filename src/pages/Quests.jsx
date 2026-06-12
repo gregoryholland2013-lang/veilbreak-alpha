@@ -1256,6 +1256,7 @@ const startNode = (node) => {
       <ExpeditionActionModal
         node={activeActionNode}
         open={!!activeActionNode}
+        cards={cards}
         onClose={() => setActiveActionNode(null)}
         onComplete={(actionResult) => {
           const nodeToResolve = activeActionNode;
@@ -1264,8 +1265,8 @@ const startNode = (node) => {
           if (nodeToResolve) {
             resolveNode(nodeToResolve, actionResult);
           }
-          }}
-          />
+        }}
+      />
 
       <ChoiceModal
         node={activeChoiceNode}
