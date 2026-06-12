@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
+  Check,
   Crown,
   Search,
   Shield,
@@ -8,6 +9,7 @@ import {
   Trash2,
   UserPlus,
   Users,
+  X,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -76,7 +78,7 @@ export default function FriendsList() {
         },
         () => {
           queryClient.invalidateQueries({ queryKey: ['friends'] });
-          queryClient.invalidateQueries({ queryKey: ['recommendedFriends'] });
+          queryClient.invalidateQueries({ queryKey: ['allProfilesForFriends'] });
         }
       )
       .on(
@@ -126,7 +128,6 @@ export default function FriendsList() {
         .from('friends')
         .select('*')
         .eq('user_id', userId)
-        .eq('status', 'accepted')
         .order('is_system', { ascending: false })
         .order('created_at', { ascending: true });
 
@@ -164,28 +165,50 @@ export default function FriendsList() {
     return map;
   }, [profiles]);
 
-  const friendIds = useMemo(() => {
+  const acceptedRows = useMemo(() => {
+    return friendRows.filter((row) => row.status === 'accepted');
+  }, [friendRows]);
+
+  const incomingRows = useMemo(() => {
+    return friendRows.filter((row) => row.status === 'pending_received');
+  }, [friendRows]);
+
+  const sentRows = useMemo(() => {
+    return friendRows.filter((row) => row.status === 'pending_sent');
+  }, [friendRows]);
+
+  const connectedIds = useMemo(() => {
     return new Set(friendRows.map((row) => row.friend_id));
   }, [friendRows]);
 
-  const friendItems = useMemo(() => {
-    return friendRows.map((row) => {
-      const profile = profileByUserId.get(row.friend_id);
+  const buildFriendItem = (row) => {
+    const profile = profileByUserId.get(row.friend_id);
 
-      return {
-        row,
-        profile,
-        userId: row.friend_id,
-        name: profile ? getProfileName(profile) : `Player ${shortId(row.friend_id)}`,
-        subtext: profile ? getProfileSubtext(profile) : shortId(row.friend_id),
-      };
-    });
-  }, [friendRows, profileByUserId]);
+    return {
+      row,
+      profile,
+      userId: row.friend_id,
+      name: profile ? getProfileName(profile) : `Player ${shortId(row.friend_id)}`,
+      subtext: profile ? getProfileSubtext(profile) : shortId(row.friend_id),
+    };
+  };
+
+  const friendItems = useMemo(() => {
+    return acceptedRows.map(buildFriendItem);
+  }, [acceptedRows, profileByUserId]);
+
+  const incomingItems = useMemo(() => {
+    return incomingRows.map(buildFriendItem);
+  }, [incomingRows, profileByUserId]);
+
+  const sentItems = useMemo(() => {
+    return sentRows.map(buildFriendItem);
+  }, [sentRows, profileByUserId]);
 
   const recommendedUsers = useMemo(() => {
     const value = search.trim().toLowerCase();
 
-    if (friendRows.length >= MAX_FRIENDS) {
+    if (acceptedRows.length >= MAX_FRIENDS) {
       return [];
     }
 
@@ -195,7 +218,7 @@ export default function FriendsList() {
 
         if (!profileUserId) return false;
         if (profileUserId === userId) return false;
-        if (friendIds.has(profileUserId)) return false;
+        if (connectedIds.has(profileUserId)) return false;
 
         const name = getProfileName(profile).toLowerCase();
         const email = String(profile.email || '').toLowerCase();
@@ -213,30 +236,98 @@ export default function FriendsList() {
         return getProfileName(a).localeCompare(getProfileName(b));
       })
       .slice(0, 12);
-  }, [profiles, friendRows.length, friendIds, userId, search]);
+  }, [profiles, acceptedRows.length, connectedIds, userId, search]);
 
-  const addFriend = async (targetUserId, targetName) => {
+  const sendRequest = async (targetUserId, targetName) => {
     if (!targetUserId) return;
 
     setProcessingId(targetUserId);
 
     try {
-      const { error } = await supabase.rpc('add_friend', {
+      const { error } = await supabase.rpc('send_friend_request', {
         p_friend_id: targetUserId,
       });
 
       if (error) throw error;
 
-      toast.success(`Added ${targetName || 'player'} as a friend`);
+      toast.success(`Friend request sent to ${targetName || 'player'}`);
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['friends'] }),
-        queryClient.invalidateQueries({ queryKey: ['recommendedFriends'] }),
-        queryClient.invalidateQueries({ queryKey: ['ensureDeveloperFriend'] }),
+        queryClient.invalidateQueries({ queryKey: ['allProfilesForFriends'] }),
       ]);
     } catch (error) {
       console.error(error);
-      toast.error(error.message || 'Could not add friend');
+      toast.error(error.message || 'Could not send friend request');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const acceptRequest = async (friend) => {
+    if (!friend?.userId) return;
+
+    setProcessingId(friend.userId);
+
+    try {
+      const { error } = await supabase.rpc('accept_friend_request', {
+        p_requester_id: friend.userId,
+      });
+
+      if (error) throw error;
+
+      toast.success(`${friend.name} is now your friend`);
+
+      await queryClient.invalidateQueries({ queryKey: ['friends'] });
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Could not accept friend request');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const declineRequest = async (friend) => {
+    if (!friend?.userId) return;
+
+    setProcessingId(friend.userId);
+
+    try {
+      const { error } = await supabase.rpc('decline_friend_request', {
+        p_requester_id: friend.userId,
+      });
+
+      if (error) throw error;
+
+      toast.success(`Declined ${friend.name}'s request`);
+
+      await queryClient.invalidateQueries({ queryKey: ['friends'] });
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Could not decline friend request');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const cancelRequest = async (friend) => {
+    if (!friend?.userId) return;
+
+    setProcessingId(friend.userId);
+
+    try {
+      const { error } = await supabase.rpc('cancel_friend_request', {
+        p_friend_id: friend.userId,
+      });
+
+      if (error) throw error;
+
+      toast.success(`Canceled request to ${friend.name}`);
+
+      await queryClient.invalidateQueries({ queryKey: ['friends'] });
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Could not cancel friend request');
     } finally {
       setProcessingId(null);
     }
@@ -261,10 +352,7 @@ export default function FriendsList() {
 
       toast.success(`Removed ${friend.name}`);
 
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['friends'] }),
-        queryClient.invalidateQueries({ queryKey: ['recommendedFriends'] }),
-      ]);
+      await queryClient.invalidateQueries({ queryKey: ['friends'] });
     } catch (error) {
       console.error(error);
       toast.error(error.message || 'Could not remove friend');
@@ -288,7 +376,7 @@ export default function FriendsList() {
               Friends
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Add players for future private trades, guild invites, and raid assists.
+              Send requests, accept allies, and build your network for future trades and raids.
             </p>
 
             <div className="mt-3 h-2 rounded-full bg-muted overflow-hidden">
@@ -297,14 +385,16 @@ export default function FriendsList() {
                 style={{
                   width: `${Math.min(
                     100,
-                    (friendRows.length / MAX_FRIENDS) * 100
+                    (acceptedRows.length / MAX_FRIENDS) * 100
                   )}%`,
                 }}
               />
             </div>
 
             <p className="text-[10px] text-muted-foreground mt-1">
-              {friendRows.length}/{MAX_FRIENDS} friends
+              {acceptedRows.length}/{MAX_FRIENDS} friends
+              {incomingRows.length > 0 ? ` · ${incomingRows.length} incoming` : ''}
+              {sentRows.length > 0 ? ` · ${sentRows.length} sent` : ''}
             </p>
           </div>
         </div>
@@ -319,6 +409,59 @@ export default function FriendsList() {
           className="pl-9 h-9 text-sm"
         />
       </div>
+
+      {incomingItems.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+            Incoming Requests
+          </p>
+
+          <AnimatePresence>
+            {incomingItems.map((friend, index) => (
+              <motion.div
+                key={friend.row.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ delay: index * 0.03 }}
+                className="rounded-xl border border-blue-400/40 bg-blue-500/10 p-3 flex items-center gap-3"
+              >
+                <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
+                  <UserPlus className="w-5 h-5 text-blue-300" />
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <p className="font-display font-bold text-sm truncate">
+                    {friend.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {friend.subtext}
+                  </p>
+                </div>
+
+                <Button
+                  size="sm"
+                  disabled={processingId === friend.userId}
+                  onClick={() => acceptRequest(friend)}
+                  className="h-8 px-2"
+                >
+                  <Check className="w-4 h-4" />
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={processingId === friend.userId}
+                  onClick={() => declineRequest(friend)}
+                  className="h-8 px-2 text-destructive"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
 
       <div className="space-y-2">
         <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
@@ -408,12 +551,50 @@ export default function FriendsList() {
         </AnimatePresence>
       </div>
 
+      {sentItems.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+            Sent Requests
+          </p>
+
+          {sentItems.map((friend) => (
+            <div
+              key={friend.row.id}
+              className="rounded-xl border border-border bg-card p-3 flex items-center gap-3 opacity-80"
+            >
+              <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
+                <UserPlus className="w-5 h-5 text-muted-foreground" />
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <p className="font-display font-bold text-sm truncate">
+                  {friend.name}
+                </p>
+                <p className="text-xs text-muted-foreground truncate">
+                  Request pending
+                </p>
+              </div>
+
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={processingId === friend.userId}
+                onClick={() => cancelRequest(friend)}
+                className="text-destructive"
+              >
+                Cancel
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="space-y-2">
         <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
           Recommended Users
         </p>
 
-        {friendRows.length >= MAX_FRIENDS ? (
+        {acceptedRows.length >= MAX_FRIENDS ? (
           <div className="rounded-xl border border-border bg-card p-4 text-center text-sm text-muted-foreground">
             Your friend list is full.
           </div>
@@ -452,11 +633,11 @@ export default function FriendsList() {
                   <Button
                     size="sm"
                     disabled={processingId === targetUserId}
-                    onClick={() => addFriend(targetUserId, targetName)}
+                    onClick={() => sendRequest(targetUserId, targetName)}
                     className="gap-1"
                   >
                     <UserPlus className="w-3.5 h-3.5" />
-                    Add
+                    Request
                   </Button>
                 </motion.div>
               );
