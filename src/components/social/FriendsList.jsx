@@ -1,29 +1,69 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Crown,
+  Search,
+  Shield,
+  Sparkles,
+  Trash2,
+  UserPlus,
+  Users,
+} from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { supabase } from '@/lib/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'framer-motion';
-import { UserPlus, Check, X, Users, Sparkles } from 'lucide-react';
 
 const MAX_FRIENDS = 50;
-const CHEER_GOLD = 20;
-const CHEER_GEMS = 1;
-const DEV_EMAIL = 'dev@realmoflegends.com';
 
-const todayStr = () => new Date().toISOString().split('T')[0];
+async function getAuthUser() {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error) throw error;
+
+  return user;
+}
+
+function getProfileUserId(profile) {
+  return profile?.user_id || profile?.id || null;
+}
+
+function getProfileName(profile) {
+  return (
+    profile?.display_name ||
+    profile?.username ||
+    profile?.name ||
+    profile?.email ||
+    'Unknown Player'
+  );
+}
+
+function getProfileSubtext(profile) {
+  const level = profile?.level || 1;
+  const faction = profile?.faction || profile?.favorite_faction || null;
+
+  if (faction) {
+    return `Lv.${level} · ${faction}`;
+  }
+
+  return `Lv.${level}`;
+}
+
+function shortId(id) {
+  if (!id) return '';
+  return `${String(id).slice(0, 6)}...${String(id).slice(-4)}`;
+}
 
 export default function FriendsList() {
   const queryClient = useQueryClient();
 
-  const [addEmail, setAddEmail] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [processingId, setProcessingId] = useState(null);
 
-  /**
-   * Supabase Realtime
-   * Keeps friend requests, accepted friends, and cheer updates reactive.
-   */
   useEffect(() => {
     const channel = supabase
       .channel('friends-list-realtime')
@@ -32,10 +72,11 @@ export default function FriendsList() {
         {
           event: '*',
           schema: 'public',
-          table: 'friendships',
+          table: 'friends',
         },
         () => {
-          queryClient.invalidateQueries({ queryKey: ['friendships'] });
+          queryClient.invalidateQueries({ queryKey: ['friends'] });
+          queryClient.invalidateQueries({ queryKey: ['recommendedFriends'] });
         }
       )
       .on(
@@ -46,7 +87,7 @@ export default function FriendsList() {
           table: 'profiles',
         },
         () => {
-          queryClient.invalidateQueries({ queryKey: ['playerProfile'] });
+          queryClient.invalidateQueries({ queryKey: ['allProfilesForFriends'] });
         }
       )
       .subscribe();
@@ -58,482 +99,370 @@ export default function FriendsList() {
 
   const { data: authUser = null } = useQuery({
     queryKey: ['authUser'],
+    queryFn: getAuthUser,
+  });
+
+  const userId = authUser?.id || null;
+
+  const { data: ensureDevReady = false } = useQuery({
+    queryKey: ['ensureDeveloperFriend', userId],
+    enabled: !!userId,
     queryFn: async () => {
-      const {
-        data: { user },
-        error,
-      } = await supabase.auth.getUser();
+      const { error } = await supabase.rpc('ensure_developer_friend');
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
-      return user;
+      return true;
     },
   });
 
-  const myEmail = authUser?.email || null;
-  const userId = authUser?.id || null;
-
-  const { data: friendships = [] } = useQuery({
-    queryKey: ['friendships', myEmail],
-    enabled: !!myEmail,
+  const { data: friendRows = [], isLoading: friendsLoading } = useQuery({
+    queryKey: ['friends', userId, ensureDevReady],
+    enabled: !!userId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('friendships')
-        .select('*')
-        .or(`requester_email.eq.${myEmail},recipient_email.eq.${myEmail}`)
-        .order('created_at', { ascending: false });
+      await supabase.rpc('ensure_developer_friend');
 
-      if (error) {
-        throw error;
-      }
+      const { data, error } = await supabase
+        .from('friends')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('status', 'accepted')
+        .order('is_system', { ascending: false })
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
 
       return data || [];
     },
   });
 
-  const { data: profile = null } = useQuery({
-    queryKey: ['playerProfile', userId],
-    enabled: !!userId,
+  const { data: profiles = [], isLoading: profilesLoading } = useQuery({
+    queryKey: ['allProfilesForFriends'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('user_id', userId)
-        .maybeSingle();
+        .limit(500);
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
-      return data;
+      return data || [];
     },
   });
 
-  const myFriendships = useMemo(() => {
-    return friendships.filter(
-      (f) => f.requester_email === myEmail || f.recipient_email === myEmail
-    );
-  }, [friendships, myEmail]);
+  const profileByUserId = useMemo(() => {
+    const map = new Map();
 
-  const accepted = useMemo(() => {
-    return myFriendships.filter((f) => f.status === 'accepted');
-  }, [myFriendships]);
+    profiles.forEach((profile) => {
+      const profileUserId = getProfileUserId(profile);
 
-  const incomingPending = useMemo(() => {
-    return myFriendships.filter(
-      (f) => f.status === 'pending' && f.recipient_email === myEmail
-    );
-  }, [myFriendships, myEmail]);
-
-  const outgoingPending = useMemo(() => {
-    return myFriendships.filter(
-      (f) => f.status === 'pending' && f.requester_email === myEmail
-    );
-  }, [myFriendships, myEmail]);
-
-  const isDevAccount = myEmail === DEV_EMAIL;
-  const atCapacity = !isDevAccount && accepted.length >= MAX_FRIENDS;
-
-  const getFriendEmail = (f) =>
-    f.requester_email === myEmail ? f.recipient_email : f.requester_email;
-
-  const sendRequest = async () => {
-    const recipientEmail = addEmail.trim().toLowerCase();
-
-    if (!myEmail) {
-      toast.error('You need to be logged in');
-      return;
-    }
-
-    if (!recipientEmail || recipientEmail === myEmail.toLowerCase()) {
-      toast.error('Invalid email');
-      return;
-    }
-
-    const already = myFriendships.find((f) => {
-      const otherEmail =
-        f.requester_email === myEmail ? f.recipient_email : f.requester_email;
-
-      return otherEmail?.toLowerCase() === recipientEmail;
+      if (profileUserId) {
+        map.set(profileUserId, profile);
+      }
     });
 
-    if (already) {
-      toast.error('Already friends or request pending');
-      return;
+    return map;
+  }, [profiles]);
+
+  const friendIds = useMemo(() => {
+    return new Set(friendRows.map((row) => row.friend_id));
+  }, [friendRows]);
+
+  const friendItems = useMemo(() => {
+    return friendRows.map((row) => {
+      const profile = profileByUserId.get(row.friend_id);
+
+      return {
+        row,
+        profile,
+        userId: row.friend_id,
+        name: profile ? getProfileName(profile) : `Player ${shortId(row.friend_id)}`,
+        subtext: profile ? getProfileSubtext(profile) : shortId(row.friend_id),
+      };
+    });
+  }, [friendRows, profileByUserId]);
+
+  const recommendedUsers = useMemo(() => {
+    const value = search.trim().toLowerCase();
+
+    if (friendRows.length >= MAX_FRIENDS) {
+      return [];
     }
 
-    if (atCapacity) {
-      toast.error(`Friend limit is ${MAX_FRIENDS}`);
-      return;
-    }
+    return profiles
+      .filter((profile) => {
+        const profileUserId = getProfileUserId(profile);
 
-    setLoading(true);
+        if (!profileUserId) return false;
+        if (profileUserId === userId) return false;
+        if (friendIds.has(profileUserId)) return false;
+
+        const name = getProfileName(profile).toLowerCase();
+        const email = String(profile.email || '').toLowerCase();
+
+        if (!value) return true;
+
+        return name.includes(value) || email.includes(value);
+      })
+      .sort((a, b) => {
+        const levelA = Number(a.level || 1);
+        const levelB = Number(b.level || 1);
+
+        if (levelB !== levelA) return levelB - levelA;
+
+        return getProfileName(a).localeCompare(getProfileName(b));
+      })
+      .slice(0, 12);
+  }, [profiles, friendRows.length, friendIds, userId, search]);
+
+  const addFriend = async (targetUserId, targetName) => {
+    if (!targetUserId) return;
+
+    setProcessingId(targetUserId);
 
     try {
-      const now = new Date().toISOString();
-
-      /**
-       * Defensive DB check before insert.
-       * This catches duplicates even if the local list is stale.
-       */
-      const { data: existing, error: existingError } = await supabase
-        .from('friendships')
-        .select('id, status')
-        .or(
-          `and(requester_email.eq.${myEmail},recipient_email.eq.${recipientEmail}),and(requester_email.eq.${recipientEmail},recipient_email.eq.${myEmail})`
-        )
-        .maybeSingle();
-
-      if (existingError) {
-        throw existingError;
-      }
-
-      if (existing) {
-        toast.error('Already friends or request pending');
-        return;
-      }
-
-      const { error } = await supabase.from('friendships').insert({
-        requester_email: myEmail,
-        recipient_email: recipientEmail,
-        status: 'pending',
-        created_at: now,
-        updated_at: now,
+      const { error } = await supabase.rpc('add_friend', {
+        p_friend_id: targetUserId,
       });
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
-      queryClient.invalidateQueries({ queryKey: ['friendships'] });
+      toast.success(`Added ${targetName || 'player'} as a friend`);
 
-      toast.success('Friend request sent!');
-      setAddEmail('');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['friends'] }),
+        queryClient.invalidateQueries({ queryKey: ['recommendedFriends'] }),
+        queryClient.invalidateQueries({ queryKey: ['ensureDeveloperFriend'] }),
+      ]);
     } catch (error) {
       console.error(error);
-      toast.error(error.message || 'Could not send friend request');
+      toast.error(error.message || 'Could not add friend');
     } finally {
-      setLoading(false);
+      setProcessingId(null);
     }
   };
 
-  const acceptRequest = async (f) => {
-    try {
-      if (atCapacity) {
-        toast.error(`Friend limit is ${MAX_FRIENDS}`);
-        return;
-      }
+  const removeFriend = async (friend) => {
+    if (!friend?.userId) return;
 
-      const now = new Date().toISOString();
-
-      const { error } = await supabase
-        .from('friendships')
-        .update({
-          status: 'accepted',
-          accepted_at: now,
-          updated_at: now,
-        })
-        .eq('id', f.id)
-        .eq('recipient_email', myEmail)
-        .eq('status', 'pending');
-
-      if (error) {
-        throw error;
-      }
-
-      queryClient.invalidateQueries({ queryKey: ['friendships'] });
-
-      toast.success('Friend accepted!');
-    } catch (error) {
-      console.error(error);
-      toast.error(error.message || 'Could not accept friend');
+    if (friend.row?.is_system) {
+      toast.error('The developer account cannot be removed');
+      return;
     }
-  };
 
-  const rejectRequest = async (f) => {
+    setProcessingId(friend.userId);
+
     try {
-      const { error } = await supabase
-        .from('friendships')
-        .update({
-          status: 'rejected',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', f.id)
-        .eq('recipient_email', myEmail)
-        .eq('status', 'pending');
+      const { error } = await supabase.rpc('remove_friend', {
+        p_friend_id: friend.userId,
+      });
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
-      queryClient.invalidateQueries({ queryKey: ['friendships'] });
-    } catch (error) {
-      console.error(error);
-      toast.error(error.message || 'Could not reject request');
-    }
-  };
+      toast.success(`Removed ${friend.name}`);
 
-  const removeFriend = async (f) => {
-    try {
-      const { error } = await supabase
-        .from('friendships')
-        .delete()
-        .eq('id', f.id)
-        .or(`requester_email.eq.${myEmail},recipient_email.eq.${myEmail}`);
-
-      if (error) {
-        throw error;
-      }
-
-      queryClient.invalidateQueries({ queryKey: ['friendships'] });
-
-      toast.success('Friend removed');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['friends'] }),
+        queryClient.invalidateQueries({ queryKey: ['recommendedFriends'] }),
+      ]);
     } catch (error) {
       console.error(error);
       toast.error(error.message || 'Could not remove friend');
+    } finally {
+      setProcessingId(null);
     }
   };
 
-  const cheer = async (f) => {
-    if (!profile) {
-      toast.error('Profile has not loaded yet');
-      return;
-    }
-
-    const iAmRequester = f.requester_email === myEmail;
-
-    const lastCheerField = iAmRequester
-      ? 'last_cheer_by_requester'
-      : 'last_cheer_by_recipient';
-
-    const lastCheer = iAmRequester
-      ? f.last_cheer_by_requester
-      : f.last_cheer_by_recipient;
-
-    if (lastCheer === todayStr()) {
-      toast.error('Already cheered today!');
-      return;
-    }
-
-    try {
-      const now = new Date().toISOString();
-
-      const { error: friendshipError } = await supabase
-        .from('friendships')
-        .update({
-          [lastCheerField]: todayStr(),
-          updated_at: now,
-        })
-        .eq('id', f.id)
-        .eq('status', 'accepted');
-
-      if (friendshipError) {
-        throw friendshipError;
-      }
-
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({
-          gold: (profile.gold || 0) + CHEER_GOLD,
-          gems: (profile.gems || 0) + CHEER_GEMS,
-          updated_at: now,
-        })
-        .eq('id', profile.id);
-
-      if (profileError) {
-        throw profileError;
-      }
-
-      queryClient.invalidateQueries({ queryKey: ['friendships'] });
-      queryClient.invalidateQueries({ queryKey: ['playerProfile'] });
-
-      toast.success(`Cheered! +${CHEER_GOLD} Gold +${CHEER_GEMS} Gem`);
-    } catch (error) {
-      console.error(error);
-      toast.error(error.message || 'Could not cheer friend');
-    }
-  };
-
-  if (!myEmail) {
-    return (
-      <div className="p-6 text-center text-muted-foreground">
-        Loading…
-      </div>
-    );
-  }
+  const isLoading = friendsLoading || profilesLoading;
 
   return (
-    <div className="p-4 space-y-5">
-      <div className="space-y-2">
-        <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">
-          Add Friend
-        </p>
+    <div className="px-4 py-4 space-y-4">
+      <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4">
+        <div className="flex items-start gap-3">
+          <div className="w-12 h-12 rounded-xl bg-primary/20 border border-primary/30 flex items-center justify-center">
+            <Users className="w-6 h-6 text-primary" />
+          </div>
 
-        <div className="flex gap-2">
-          <Input
-            placeholder="Friend's email…"
-            value={addEmail}
-            onChange={(e) => setAddEmail(e.target.value)}
-            className="text-sm h-9"
-            onKeyDown={(e) => e.key === 'Enter' && sendRequest()}
-          />
+          <div className="flex-1">
+            <p className="font-display text-lg font-black text-primary">
+              Friends
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Add players for future private trades, guild invites, and raid assists.
+            </p>
 
-          <Button
-            size="sm"
-            onClick={sendRequest}
-            disabled={loading}
-            className="gap-1.5 h-9"
-          >
-            <UserPlus className="w-4 h-4" />
-            {loading ? 'Adding…' : 'Add'}
-          </Button>
+            <div className="mt-3 h-2 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full bg-primary rounded-full transition-all"
+                style={{
+                  width: `${Math.min(
+                    100,
+                    (friendRows.length / MAX_FRIENDS) * 100
+                  )}%`,
+                }}
+              />
+            </div>
+
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {friendRows.length}/{MAX_FRIENDS} friends
+            </p>
+          </div>
         </div>
-
-        {!isDevAccount && (
-          <p className="text-[10px] text-muted-foreground">
-            {accepted.length} / {MAX_FRIENDS} friends
-          </p>
-        )}
       </div>
 
-      {incomingPending.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">
-            Requests ({incomingPending.length})
-          </p>
-
-          {incomingPending.map((f) => (
-            <div
-              key={f.id}
-              className="flex items-center gap-3 bg-primary/5 border border-primary/20 rounded-xl p-3"
-            >
-              <p className="flex-1 text-sm font-semibold truncate">
-                {f.requester_email}
-              </p>
-
-              <Button
-                size="sm"
-                className="h-7 gap-1"
-                onClick={() => acceptRequest(f)}
-              >
-                <Check className="w-3.5 h-3.5" />
-              </Button>
-
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 text-destructive"
-                onClick={() => rejectRequest(f)}
-              >
-                <X className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {outgoingPending.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">
-            Sent Requests
-          </p>
-
-          {outgoingPending.map((f) => (
-            <div
-              key={f.id}
-              className="flex items-center gap-3 bg-card border border-border rounded-xl p-3"
-            >
-              <p className="flex-1 text-sm truncate text-muted-foreground">
-                {f.recipient_email}
-              </p>
-
-              <span className="text-[10px] text-yellow-400 font-semibold">
-                Pending
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search recommended users..."
+          className="pl-9 h-9 text-sm"
+        />
+      </div>
 
       <div className="space-y-2">
-        <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">
-          Friends ({accepted.length})
+        <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+          Your Friends
         </p>
 
-        {accepted.length === 0 && (
-          <div className="text-center py-10 text-muted-foreground">
-            <Users className="w-10 h-10 mx-auto mb-2 opacity-30" />
-            <p className="text-sm">No friends yet. Add some!</p>
+        {isLoading && (
+          <div className="rounded-xl border border-border bg-card p-4 text-center text-sm text-muted-foreground">
+            Loading friends...
+          </div>
+        )}
+
+        {!isLoading && friendItems.length === 0 && (
+          <div className="rounded-xl border border-border bg-card p-4 text-center text-sm text-muted-foreground">
+            No friends found yet.
           </div>
         )}
 
         <AnimatePresence>
-          {accepted.map((f) => {
-            const friendEmail = getFriendEmail(f);
-            const iAmRequester = f.requester_email === myEmail;
-
-            const lastCheer = iAmRequester
-              ? f.last_cheer_by_requester
-              : f.last_cheer_by_recipient;
-
-            const cheeredToday = lastCheer === todayStr();
-
-            const acceptedAt = f.accepted_at ? new Date(f.accepted_at) : null;
-            const hoursSince = acceptedAt
-              ? (Date.now() - acceptedAt.getTime()) / 3600000
-              : 0;
-
-            const canTrade = hoursSince >= 48;
+          {friendItems.map((friend, index) => {
+            const isSystem = friend.row?.is_system;
 
             return (
               <motion.div
-                key={f.id}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="flex items-center gap-3 bg-card border border-border rounded-xl p-3"
+                key={friend.row.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ delay: index * 0.03 }}
+                className={`rounded-xl border p-3 flex items-center gap-3 ${
+                  isSystem
+                    ? 'border-primary/50 bg-primary/10'
+                    : 'border-border bg-card'
+                }`}
               >
-                <div className="w-9 h-9 rounded-full bg-secondary border border-border flex items-center justify-center flex-shrink-0">
-                  <Users className="w-4 h-4 text-muted-foreground" />
+                <div
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    isSystem
+                      ? 'bg-primary/20 border border-primary/30'
+                      : 'bg-muted'
+                  }`}
+                >
+                  {isSystem ? (
+                    <Crown className="w-5 h-5 text-primary" />
+                  ) : (
+                    <Shield className="w-5 h-5 text-blue-300" />
+                  )}
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold truncate">
-                    {friendEmail}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-display font-bold text-sm truncate">
+                      {friend.name}
+                    </p>
 
-                  <p className="text-[10px] text-muted-foreground">
-                    {canTrade
-                      ? '✅ Trade eligible'
-                      : `⏳ Trade in ${Math.ceil(48 - hoursSince)}h`}
+                    {isSystem && (
+                      <span className="text-[9px] rounded-full bg-primary/20 text-primary px-2 py-0.5 font-bold">
+                        Developer
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-muted-foreground truncate">
+                    {friend.subtext}
                   </p>
                 </div>
 
-                <Button
-                  size="sm"
-                  variant={cheeredToday ? 'ghost' : 'outline'}
-                  disabled={cheeredToday}
-                  onClick={() => cheer(f)}
-                  className="h-7 gap-1 text-xs"
-                >
-                  <Sparkles className="w-3 h-3" />
-                  {cheeredToday ? 'Cheered' : 'Cheer'}
-                </Button>
-
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 text-destructive text-xs"
-                  onClick={() => removeFriend(f)}
-                >
-                  <X className="w-3.5 h-3.5" />
-                </Button>
+                {isSystem ? (
+                  <div className="text-[10px] text-primary font-bold flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" />
+                    Locked
+                  </div>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={processingId === friend.userId}
+                    onClick={() => removeFriend(friend)}
+                    className="text-destructive"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                )}
               </motion.div>
             );
           })}
         </AnimatePresence>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+          Recommended Users
+        </p>
+
+        {friendRows.length >= MAX_FRIENDS ? (
+          <div className="rounded-xl border border-border bg-card p-4 text-center text-sm text-muted-foreground">
+            Your friend list is full.
+          </div>
+        ) : recommendedUsers.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card p-4 text-center text-sm text-muted-foreground">
+            No recommended users found.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {recommendedUsers.map((profile, index) => {
+              const targetUserId = getProfileUserId(profile);
+              const targetName = getProfileName(profile);
+
+              return (
+                <motion.div
+                  key={targetUserId}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.025 }}
+                  className="rounded-xl border border-border bg-card p-3 flex items-center gap-3"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
+                    <Users className="w-5 h-5 text-muted-foreground" />
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <p className="font-display font-bold text-sm truncate">
+                      {targetName}
+                    </p>
+
+                    <p className="text-xs text-muted-foreground truncate">
+                      {getProfileSubtext(profile)}
+                    </p>
+                  </div>
+
+                  <Button
+                    size="sm"
+                    disabled={processingId === targetUserId}
+                    onClick={() => addFriend(targetUserId, targetName)}
+                    className="gap-1"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                    Add
+                  </Button>
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
