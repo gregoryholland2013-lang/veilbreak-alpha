@@ -35,20 +35,34 @@ const rewardApply = {
   gold: (profile, amt) => ({
     gold: (profile.gold || 0) + amt,
   }),
+
   gems: (profile, amt) => ({
     gems: (profile.gems || 0) + amt,
   }),
+
+  stamina: (profile, amt) => ({
+    stamina: Math.min(
+      (profile.stamina || 0) + amt,
+      profile.max_stamina || 100
+    ),
+  }),
+
   stamina_potion: (profile, amt) => ({
     stamina: Math.min(
       (profile.stamina || 0) + amt,
       profile.max_stamina || 100
     ),
   }),
+
   atk_boost: () => ({}),
   def_boost: () => ({}),
   card_pack: () => ({}),
   skill_shards: () => ({}),
   fodder: () => ({}),
+  fodder_cards: () => ({}),
+  ironveil_core_fragments: () => ({}),
+  ironveil_reputation: () => ({}),
+  ironveil_summon_shards: () => ({}),
 };
 
 async function getAuthUser() {
@@ -64,8 +78,8 @@ async function getAuthUser() {
   return user;
 }
 
-async function applyInventoryReward(inventory, rewardType, amount) {
-  if (!inventory) return;
+async function applyInventoryReward(inventory, rewardType, amount, userId) {
+  if (!inventory || !userId) return;
 
   const updates = {};
 
@@ -73,8 +87,23 @@ async function applyInventoryReward(inventory, rewardType, amount) {
     updates.skill_shards = (inventory.skill_shards || 0) + amount;
   }
 
-  if (rewardType === 'fodder') {
+  if (rewardType === 'fodder' || rewardType === 'fodder_cards') {
     updates.fodder_cards = (inventory.fodder_cards || 0) + amount;
+  }
+
+  if (rewardType === 'ironveil_core_fragments') {
+    updates.ironveil_core_fragments =
+      (inventory.ironveil_core_fragments || 0) + amount;
+  }
+
+  if (rewardType === 'ironveil_reputation') {
+    updates.ironveil_reputation =
+      (inventory.ironveil_reputation || 0) + amount;
+  }
+
+  if (rewardType === 'ironveil_summon_shards') {
+    updates.ironveil_summon_shards =
+      (inventory.ironveil_summon_shards || 0) + amount;
   }
 
   if (Object.keys(updates).length === 0) return;
@@ -85,7 +114,8 @@ async function applyInventoryReward(inventory, rewardType, amount) {
       ...updates,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', inventory.id);
+    .eq('id', inventory.id)
+    .eq('user_id', userId);
 
   if (error) {
     throw error;
@@ -187,71 +217,96 @@ export default function Mailbox() {
   });
 
   const { data: loginRecord = null } = useQuery({
-    queryKey: ['loginRecord', userId, weekStart],
-    enabled: !!userId,
-    queryFn: async () => {
-      /**
-       * Try to find this user's record for the current week.
-       */
-      const { data: existing, error: fetchError } = await supabase
-        .from('player_login_records')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('week_start', weekStart)
-        .maybeSingle();
+  queryKey: ['loginRecord', userId, weekStart],
+  enabled: !!userId,
+  queryFn: async () => {
+    const { data: existing, error: fetchError } = await supabase
+      .from('player_login_records')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('week_start', weekStart)
+      .maybeSingle();
 
-      if (fetchError) {
-        throw fetchError;
-      }
+    if (fetchError) {
+      throw fetchError;
+    }
 
-      if (existing) {
-        return existing;
-      }
+    if (existing) {
+      return existing;
+    }
 
-      /**
-       * Create the weekly login record if it does not exist.
-       */
-      const now = new Date().toISOString();
+    const now = new Date().toISOString();
 
-      const { data: created, error: createError } = await supabase
-        .from('player_login_records')
-        .insert({
-          id: userId,
-          email: myEmail,
-          week_start: weekStart,
-          claimed_days: [],
-          last_claim_date: null,
-          created_at: now,
-          updated_at: now,
-        })
-        .select()
-        .single();
+    const { data: created, error: createError } = await supabase
+      .from('player_login_records')
+      .insert({
+        user_id: userId,
+        email: myEmail,
+        week_start: weekStart,
+        claimed_days: [],
+        last_claim_date: null,
+        created_at: now,
+        updated_at: now,
+      })
+      .select()
+      .single();
 
-      if (createError) {
-        throw createError;
-      }
+    if (createError) {
+      throw createError;
+    }
 
-      return created;
-    },
-  });
+    return created;
+  },
+});
 
   const { data: inventory = null } = useQuery({
-    queryKey: ['playerInventory', userId],
-    enabled: !!userId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('player_inventory')
-        .select('*')
-        .eq('user_id', userId)
-        .maybeSingle();
+  queryKey: ['playerInventory', userId],
+  enabled: !!userId,
+  queryFn: async () => {
+    const { data: existing, error: fetchError } = await supabase
+      .from('player_inventory')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
 
-      if (error) {
-        throw error;
-      }
+    if (fetchError) {
+      throw fetchError;
+    }
 
-      return data;
-    },
-  });
+    if (existing) {
+      return existing;
+    }
+
+    const now = new Date().toISOString();
+
+    const { data: created, error: createError } = await supabase
+      .from('player_inventory')
+      .insert({
+        id: userId,
+        user_id: userId,
+        email: myEmail,
+        skill_shards: 0,
+        fodder_cards: 0,
+        quests_completed: 0,
+        boss_quests_cleared: 0,
+        aether_dust: 0,
+        spirit_water: 0,
+        ironveil_core_fragments: 0,
+        ironveil_reputation: 0,
+        ironveil_summon_shards: 0,
+        created_at: now,
+        updated_at: now,
+      })
+      .select()
+      .single();
+
+    if (createError) {
+      throw createError;
+    }
+
+    return created;
+  },
+});
 
   const claimedDays = loginRecord?.claimed_days || [];
 
@@ -309,7 +364,8 @@ export default function Mailbox() {
       await applyInventoryReward(
         inventory,
         reward.reward_type,
-        reward.reward_amount
+        reward.reward_amount,
+        userId
       );
 
       /**
@@ -337,7 +393,9 @@ export default function Mailbox() {
         queryClient.invalidateQueries({ queryKey: ['playerProfile'] }),
       ]);
 
-      toast.success(`🎁 ${reward.title} claimed!`);
+      toast.success(
+        `🎁 ${reward.title} claimed! +${reward.reward_amount} ${reward.reward_type.replaceAll('_', ' ')}`
+      );
     } catch (error) {
       console.error(error);
       toast.error(error.message || 'Could not claim reward');
