@@ -43,50 +43,78 @@ const EMPTY_VALUES = TRADE_RESOURCES.reduce((acc, item) => {
   return acc;
 }, {});
 
+function numberValue(value) {
+  return Math.max(0, Number(value || 0));
+}
+
 function getOwnedStat(playerCard, card, key) {
   if (key === 'attack') {
-    return Number(playerCard?.attack ?? card?.base_attack ?? 0);
+    return Number(
+      playerCard?.attack ??
+        playerCard?.stage_base_attack ??
+        card?.base_attack ??
+        0
+    );
   }
 
   if (key === 'defense') {
-    return Number(playerCard?.defense ?? card?.base_defense ?? 0);
+    return Number(
+      playerCard?.defense ??
+        playerCard?.stage_base_defense ??
+        card?.base_defense ??
+        0
+    );
   }
 
   if (key === 'hp') {
-    return Number(playerCard?.hp ?? playerCard?.max_hp ?? card?.base_hp ?? 0);
+    return Number(
+      playerCard?.hp ??
+        playerCard?.max_hp ??
+        playerCard?.stage_base_hp ??
+        card?.base_hp ??
+        0
+    );
   }
 
   return 0;
 }
 
-function buildCardLabel(pc, card) {
-  const attack = getOwnedStat(pc, card, 'attack');
-  const defense = getOwnedStat(pc, card, 'defense');
-  const hp = getOwnedStat(pc, card, 'hp');
+function buildCardLabel(playerCard, card) {
+  const attack = getOwnedStat(playerCard, card, 'attack');
+  const defense = getOwnedStat(playerCard, card, 'defense');
+  const hp = getOwnedStat(playerCard, card, 'hp');
 
-  return `${card.name} Lv.${pc.level || 1} [${card.rarity}] · ${attack}/${defense}/${hp}`;
+  return `${card.name} Lv.${playerCard.level || 1} [${card.rarity}] · ${attack}/${defense}/${hp}`;
 }
 
-function cleanAssets(values, cards = []) {
+function cleanAssets(values, selectedCards = []) {
   const cleaned = {};
 
   TRADE_RESOURCES.forEach((resource) => {
-    const amount = Number(values?.[resource.key] || 0);
+    const amount = numberValue(values?.[resource.key]);
 
     if (amount > 0) {
       cleaned[resource.key] = amount;
     }
   });
 
-  if (cards.length > 0) {
-    cleaned.cards = cards;
+  if (selectedCards.length > 0) {
+    cleaned.cards = selectedCards;
   }
 
   return cleaned;
 }
 
 function hasAssets(data) {
-  return Object.keys(data || {}).length > 0;
+  if (!data) return false;
+
+  const hasResource = TRADE_RESOURCES.some((resource) => {
+    return Number(data?.[resource.key] || 0) > 0;
+  });
+
+  const hasCards = Array.isArray(data?.cards) && data.cards.length > 0;
+
+  return hasResource || hasCards;
 }
 
 function SummaryPills({ data }) {
@@ -100,10 +128,10 @@ function SummaryPills({ data }) {
     }
   });
 
-  const cards = Array.isArray(data?.cards) ? data.cards : [];
+  const selectedCards = Array.isArray(data?.cards) ? data.cards : [];
 
-  cards.forEach((card) => {
-    items.push(`🎴 ${card.card_name || 'Card'}`);
+  selectedCards.forEach((card) => {
+    items.push(`🎴 ${card.card_name || card.name || 'Card'}`);
   });
 
   if (items.length === 0) {
@@ -150,19 +178,20 @@ export default function CreateTradeModal({
       .filter((pc) => !pc.trade_locked)
       .map((pc) => {
         const card = (cards || []).find((c) => c.id === pc.card_id);
-        return card ? { pc, card } : null;
+
+        if (!card) return null;
+
+        return { pc, card };
       })
       .filter(Boolean);
   }, [myPlayerCards, cards]);
 
-  const getMax = (key) => {
-  if (key === 'gold') return profile?.gold || 0;
-  return inventory?.[key] || 0;
-};
   const selectedOfferCard = useMemo(() => {
     if (offerCardId === 'none') return null;
 
-    return enrichedOwnedCards.find((item) => item.pc.id === offerCardId) || null;
+    return (
+      enrichedOwnedCards.find((item) => item.pc.id === offerCardId) || null
+    );
   }, [offerCardId, enrichedOwnedCards]);
 
   const selectedWantCard = useMemo(() => {
@@ -172,7 +201,7 @@ export default function CreateTradeModal({
   }, [wantCardId, cards]);
 
   const offerData = useMemo(() => {
-    const offerCards = selectedOfferCard
+    const offeredCards = selectedOfferCard
       ? [
           {
             player_card_id: selectedOfferCard.pc.id,
@@ -184,11 +213,11 @@ export default function CreateTradeModal({
         ]
       : [];
 
-    return cleanAssets(offer, offerCards);
+    return cleanAssets(offer, offeredCards);
   }, [offer, selectedOfferCard]);
 
   const wantData = useMemo(() => {
-    const wantCards = selectedWantCard
+    const wantedCards = selectedWantCard
       ? [
           {
             card_id: selectedWantCard.id,
@@ -198,126 +227,158 @@ export default function CreateTradeModal({
         ]
       : [];
 
-    return cleanAssets(want, wantCards);
+    return cleanAssets(want, wantedCards);
   }, [want, selectedWantCard]);
+
+  const getMax = (key) => {
+    if (key === 'gold') {
+      return Number(profile?.gold || 0);
+    }
+
+    return Number(inventory?.[key] || 0);
+  };
 
   const resetForm = () => {
     setTitle('');
     setNote('');
-    setOffer(EMPTY_VALUES);
-    setWant(EMPTY_VALUES);
+    setOffer({ ...EMPTY_VALUES });
+    setWant({ ...EMPTY_VALUES });
     setOfferCardId('none');
     setWantCardId('none');
     setConfirming(false);
+    setSaving(false);
   };
 
   const validateBeforeConfirm = () => {
-  if (!myEmail) {
-    toast.error('You need to be logged in to post a trade');
-    return false;
-  }
+    const block = (message) => {
+      console.warn('Bazaar review blocked:', message, {
+        myEmail,
+        profile,
+        inventory,
+        offer,
+        want,
+        offerCardId,
+        wantCardId,
+        offerData,
+        wantData,
+      });
 
-  if (!profile) {
-    toast.error('Profile has not loaded yet');
-    return false;
-  }
-
-  if (!hasAssets(offerData)) {
-    toast.error('Add at least one offered item');
-    return false;
-  }
-
-  if (!hasAssets(wantData)) {
-    toast.error('Add at least one requested item');
-    return false;
-  }
-
-  for (const resource of TRADE_RESOURCES) {
-    const amount = Number(offer[resource.key] || 0);
-
-    if (amount < 0) {
-      toast.error(`${resource.label} cannot be negative`);
+      toast.error(message);
       return false;
+    };
+
+    if (!myEmail) {
+      return block('You need to be logged in to post a trade');
     }
 
-    if (amount > getMax(resource.key)) {
-      toast.error(`Not enough ${resource.label}`);
-      return false;
+    if (!profile) {
+      return block('Profile has not loaded yet');
     }
-  }
 
-  setConfirming(true);
-  return true;
-};
+    if (!hasAssets(offerData)) {
+      return block('Add at least one offered item or card');
+    }
+
+    if (!hasAssets(wantData)) {
+      return block('Add at least one requested item or card');
+    }
+
+    for (const resource of TRADE_RESOURCES) {
+      const amount = Number(offer[resource.key] || 0);
+
+      if (amount < 0) {
+        return block(`${resource.label} cannot be negative`);
+      }
+
+      if (amount > getMax(resource.key)) {
+        return block(`Not enough ${resource.label}`);
+      }
+    }
+
+    setConfirming(true);
+    return true;
+  };
 
   const submit = async () => {
-  if (!validateBeforeConfirm()) return;
+    if (!validateBeforeConfirm()) return;
 
-  setSaving(true);
+    setSaving(true);
 
-  try {
-    console.log('Posting Bazaar trade payload:', {
-      title: title.trim() || 'Bazaar Trade',
-      offerData,
-      wantData,
-      note: note.trim(),
-    });
+    try {
+      const payload = {
+        p_title: title.trim() || 'Bazaar Trade',
+        p_offer_data: offerData,
+        p_want_data: wantData,
+        p_note: note.trim() || '',
+      };
 
-    const { data, error } = await supabase.rpc('post_bazaar_trade', {
-      p_title: title.trim() || 'Bazaar Trade',
-      p_offer_data: offerData,
-      p_want_data: wantData,
-      p_note: note.trim() || '',
-    });
+      console.log('Posting Bazaar trade payload:', payload);
 
-    if (error) {
-      console.error('post_bazaar_trade RPC error:', error);
-      throw error;
-    }
+      const { data, error } = await supabase.rpc('post_bazaar_trade', payload);
 
-    console.log('Bazaar trade posted:', data);
+      if (error) {
+        console.error('post_bazaar_trade RPC error:', error);
+        throw error;
+      }
 
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['tradePosts'] }),
-      queryClient.invalidateQueries({ queryKey: ['tradeClaims'] }),
-      queryClient.invalidateQueries({ queryKey: ['playerProfile'] }),
-      queryClient.invalidateQueries({ queryKey: ['playerInventory'] }),
-      queryClient.invalidateQueries({ queryKey: ['playerCards'] }),
-    ]);
+      console.log('Bazaar trade posted:', data);
 
-    toast.success('Trade posted to Bazaar');
-    resetForm();
-    onClose();
-  } catch (error) {
-    console.error('Could not post Bazaar trade:', error);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['tradePosts'] }),
+        queryClient.invalidateQueries({ queryKey: ['tradeClaims'] }),
+        queryClient.invalidateQueries({ queryKey: ['playerProfile'] }),
+        queryClient.invalidateQueries({ queryKey: ['playerInventory'] }),
+        queryClient.invalidateQueries({ queryKey: ['playerCards'] }),
+      ]);
 
-    const message =
-      error?.message ||
-      error?.details ||
-      error?.hint ||
-      'Could not post trade';
-
-    toast.error(message);
-    alert(message);
-  } finally {
-    setSaving(false);
-  }
-};
-
-  const close = () => {
-    if (!saving) {
+      toast.success('Trade posted to Bazaar');
       resetForm();
       onClose();
+    } catch (error) {
+      console.error('Could not post Bazaar trade:', error);
+
+      const message =
+        error?.message ||
+        error?.details ||
+        error?.hint ||
+        'Could not post trade';
+
+      toast.error(message);
+      alert(message);
+    } finally {
+      setSaving(false);
     }
   };
 
+  const closeModal = () => {
+    if (saving) return;
+
+    resetForm();
+    onClose();
+  };
+
+  const updateOfferAmount = (key, value) => {
+    const max = getMax(key);
+    const cleanValue = Math.min(numberValue(value), max);
+
+    setOffer((previous) => ({
+      ...previous,
+      [key]: cleanValue,
+    }));
+  };
+
+  const updateWantAmount = (key, value) => {
+    setWant((previous) => ({
+      ...previous,
+      [key]: numberValue(value),
+    }));
+  };
+
   return (
-    <Dialog open={open} onOpenChange={close}>
+    <Dialog open={open} onOpenChange={closeModal}>
       <DialogContent className="max-w-sm max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="font-display">
-            🏪 Post to Bazaar
-          </DialogTitle>
+          <DialogTitle className="font-display">🏪 Post to Bazaar</DialogTitle>
         </DialogHeader>
 
         {!confirming ? (
@@ -333,46 +394,39 @@ export default function CreateTradeModal({
 
             <Input
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(event) => setTitle(event.target.value)}
               placeholder="Trade title..."
               className="h-8 text-xs"
               maxLength={40}
             />
 
             <div className="space-y-2">
-              <div className="grid grid-cols-3 text-[9px] text-center text-muted-foreground font-semibold uppercase tracking-wider">
+              <div className="grid grid-cols-[1fr_64px_64px] gap-2 text-[9px] text-center text-muted-foreground font-semibold uppercase tracking-wider">
                 <span />
                 <span>Offer</span>
                 <span>Want</span>
               </div>
 
               {TRADE_RESOURCES.map((resource) => (
-                <div key={resource.key} className="flex items-center gap-2 text-xs">
-                  <span className="w-5 text-center">{resource.icon}</span>
-
-                  <span className="flex-1 text-muted-foreground text-[11px]">
-                    {resource.label}
-                  </span>
+                <div
+                  key={resource.key}
+                  className="grid grid-cols-[1fr_64px_64px] gap-2 items-center text-xs"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-5 text-center">{resource.icon}</span>
+                    <span className="text-muted-foreground text-[11px] truncate">
+                      {resource.label}
+                    </span>
+                  </div>
 
                   <Input
                     type="number"
                     min={0}
                     max={getMax(resource.key)}
                     value={offer[resource.key] || ''}
-                    onChange={(e) => {
-                      const value = Math.max(
-                        0,
-                        Math.min(
-                          Number(e.target.value || 0),
-                          getMax(resource.key)
-                        )
-                      );
-
-                      setOffer((previous) => ({
-                        ...previous,
-                        [resource.key]: value,
-                      }));
-                    }}
+                    onChange={(event) =>
+                      updateOfferAmount(resource.key, event.target.value)
+                    }
                     className="w-16 h-7 text-xs text-center px-1"
                     placeholder="0"
                   />
@@ -381,14 +435,9 @@ export default function CreateTradeModal({
                     type="number"
                     min={0}
                     value={want[resource.key] || ''}
-                    onChange={(e) => {
-                      const value = Math.max(0, Number(e.target.value || 0));
-
-                      setWant((previous) => ({
-                        ...previous,
-                        [resource.key]: value,
-                      }));
-                    }}
+                    onChange={(event) =>
+                      updateWantAmount(resource.key, event.target.value)
+                    }
                     className="w-16 h-7 text-xs text-center px-1"
                     placeholder="0"
                   />
@@ -418,6 +467,12 @@ export default function CreateTradeModal({
                   ))}
                 </SelectContent>
               </Select>
+
+              {enrichedOwnedCards.length === 0 && (
+                <p className="text-[10px] text-muted-foreground">
+                  No unlocked owned cards available to trade.
+                </p>
+              )}
             </div>
 
             <div className="space-y-1">
@@ -436,7 +491,11 @@ export default function CreateTradeModal({
                   </SelectItem>
 
                   {(cards || []).map((card) => (
-                    <SelectItem key={card.id} value={card.id} className="text-xs">
+                    <SelectItem
+                      key={card.id}
+                      value={card.id}
+                      className="text-xs"
+                    >
                       {card.name} [{card.rarity}]
                     </SelectItem>
                   ))}
@@ -446,7 +505,7 @@ export default function CreateTradeModal({
 
             <Input
               value={note}
-              onChange={(e) => setNote(e.target.value)}
+              onChange={(event) => setNote(event.target.value)}
               placeholder="Optional note..."
               className="h-8 text-xs"
               maxLength={80}
@@ -454,11 +513,7 @@ export default function CreateTradeModal({
 
             <Button
               type="button"
-              onClick={() => {
-                if (validateBeforeConfirm()) {
-                  setConfirming(true);
-                }
-              }}
+              onClick={validateBeforeConfirm}
               className="w-full"
             >
               Review Trade
@@ -471,8 +526,17 @@ export default function CreateTradeModal({
                 Confirm Bazaar Listing
               </p>
               <p className="text-[11px] text-muted-foreground mt-1">
-                Your offered items will be locked until someone accepts this trade
-                or you cancel it.
+                Your offered items will be locked until another player accepts
+                the trade or you cancel it.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2">
+              <p className="text-xs font-bold text-muted-foreground uppercase">
+                Title
+              </p>
+              <p className="text-sm font-display text-primary">
+                {title.trim() || 'Bazaar Trade'}
               </p>
             </div>
 
@@ -490,8 +554,20 @@ export default function CreateTradeModal({
               <SummaryPills data={wantData} />
             </div>
 
+            {note.trim() && (
+              <div className="space-y-1">
+                <p className="text-xs font-bold text-muted-foreground uppercase">
+                  Note
+                </p>
+                <p className="text-xs text-muted-foreground italic">
+                  "{note.trim()}"
+                </p>
+              </div>
+            )}
+
             <div className="flex gap-2">
               <Button
+                type="button"
                 variant="ghost"
                 onClick={() => setConfirming(false)}
                 disabled={saving}
@@ -500,7 +576,12 @@ export default function CreateTradeModal({
                 Back
               </Button>
 
-              <Button onClick={submit} disabled={saving} className="flex-1">
+              <Button
+                type="button"
+                onClick={submit}
+                disabled={saving}
+                className="flex-1"
+              >
                 {saving ? 'Posting…' : 'Confirm Post'}
               </Button>
             </div>
