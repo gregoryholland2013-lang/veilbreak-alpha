@@ -137,22 +137,25 @@ function AcceptTradeModal({
   }, [enrichedOwnedCards, wantedCards]);
 
   const missingResources = useMemo(() => {
-    const missing = [];
+  const missing = [];
 
-    RESOURCE_META.forEach((resource) => {
-      const needed = assetAmount(want, resource.key);
-      const have =
-        resource.source === 'profile'
-          ? Number(profile?.[resource.key] || 0)
-          : Number(inventory?.[resource.key] || 0);
+  RESOURCE_META.forEach((resource) => {
+    const needed = assetAmount(want, resource.key);
 
-      if (needed > have) {
-        missing.push(`${resource.label}: need ${needed}, have ${have}`);
-      }
-    });
+    if (needed <= 0) return;
 
-    return missing;
-  }, [want, profile, inventory]);
+    const have =
+      resource.source === 'profile'
+        ? Number(profile?.[resource.key] || 0)
+        : Number(inventory?.[resource.key] || 0);
+
+    if (needed > have) {
+      missing.push(`${resource.label}: need ${needed}, have ${have}`);
+    }
+  });
+
+  return missing;
+}, [want, profile, inventory]);
 
   const missingCards = useMemo(() => {
     return wantedCards.filter((wanted) => {
@@ -429,20 +432,47 @@ export default function BazaarTab() {
   });
 
   const { data: inventory = null } = useQuery({
-    queryKey: ['playerInventory', userId],
-    enabled: !!userId,
-    queryFn: async () => {
-      const { data: existing, error } = await supabase
-        .from('player_inventory')
-        .select('*')
-        .eq('user_id', userId)
-        .maybeSingle();
+  queryKey: ['playerInventory', userId],
+  enabled: !!userId,
+  queryFn: async () => {
+    const { data: existing, error: fetchError } = await supabase
+      .from('player_inventory')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
 
-      if (error) throw error;
+    if (fetchError) throw fetchError;
 
-      return existing;
-    },
-  });
+    if (existing) return existing;
+
+    const now = new Date().toISOString();
+
+    const { data: created, error: createError } = await supabase
+      .from('player_inventory')
+      .insert({
+        id: userId,
+        user_id: userId,
+        email: myEmail,
+        skill_shards: 0,
+        fodder_cards: 0,
+        quests_completed: 0,
+        boss_quests_cleared: 0,
+        aether_dust: 0,
+        spirit_water: 0,
+        ironveil_core_fragments: 0,
+        ironveil_reputation: 0,
+        ironveil_summon_shards: 0,
+        created_at: now,
+        updated_at: now,
+      })
+      .select()
+      .single();
+
+    if (createError) throw createError;
+
+    return created;
+  },
+});
 
   const { data: myPlayerCards = [] } = useQuery({
     queryKey: ['playerCards', userId],
@@ -501,44 +531,52 @@ export default function BazaarTab() {
   }, [trades]);
 
   const acceptTrade = async (trade, acceptData) => {
-    if (!myEmail || !profile || !inventory) {
-      toast.error('Profile or inventory not loaded yet');
-      return;
-    }
+  if (!myEmail || !userId) {
+    toast.error('You need to be logged in');
+    return;
+  }
 
-    if (trade.poster_id === userId) {
-      toast.error("Can't accept your own trade");
-      return;
-    }
+  if (trade.poster_id === userId) {
+    toast.error("Can't accept your own trade");
+    return;
+  }
 
-    setProcessingTradeId(trade.id);
+  setProcessingTradeId(trade.id);
 
-    try {
-      const { error } = await supabase.rpc('accept_bazaar_trade', {
-        p_trade_id: trade.id,
-        p_accept_data: acceptData,
-      });
+  try {
+    const { error } = await supabase.rpc('accept_bazaar_trade', {
+      p_trade_id: trade.id,
+      p_accept_data: acceptData,
+    });
 
-      if (error) throw error;
+    if (error) throw error;
 
-      toast.success('Trade accepted! Both sides can now claim.');
+    toast.success('Trade accepted! Both sides can now claim.');
 
-      setSelectedAcceptTrade(null);
+    setSelectedAcceptTrade(null);
 
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['tradePosts'] }),
-        queryClient.invalidateQueries({ queryKey: ['tradeClaims'] }),
-        queryClient.invalidateQueries({ queryKey: ['playerProfile'] }),
-        queryClient.invalidateQueries({ queryKey: ['playerInventory'] }),
-        queryClient.invalidateQueries({ queryKey: ['playerCards'] }),
-      ]);
-    } catch (error) {
-      console.error(error);
-      toast.error(error.message || 'Could not accept trade');
-    } finally {
-      setProcessingTradeId(null);
-    }
-  };
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['tradePosts'] }),
+      queryClient.invalidateQueries({ queryKey: ['tradeClaims'] }),
+      queryClient.invalidateQueries({ queryKey: ['playerProfile'] }),
+      queryClient.invalidateQueries({ queryKey: ['playerInventory'] }),
+      queryClient.invalidateQueries({ queryKey: ['playerCards'] }),
+    ]);
+  } catch (error) {
+    console.error('Could not accept Bazaar trade:', error);
+
+    const message =
+      error?.message ||
+      error?.details ||
+      error?.hint ||
+      'Could not accept trade';
+
+    toast.error(message);
+    alert(message);
+  } finally {
+    setProcessingTradeId(null);
+  }
+};
 
   const claimTrade = async (claim) => {
     setProcessingTradeId(claim.trade_id);
