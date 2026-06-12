@@ -62,6 +62,45 @@ const NODE_TYPE_META = {
   },
 };
 
+const NODE_CHARACTER_MAP = {
+  static_in_the_veil: {
+    name: 'Lira',
+    role: 'Ironveil Signalbearer',
+    quote: 'That sound... it is not machine code. It is breathing.',
+    cardSearch: 'lira',
+  },
+  the_broken_gate: {
+    name: 'Kael',
+    role: 'Ironveil Vanguard',
+    quote: 'The gate remembers us. That does not mean it will open.',
+    cardSearch: 'kael',
+  },
+  sentinel_ambush: {
+    name: 'Vex',
+    role: 'Ironveil Saboteur',
+    quote: 'They are not guarding the path. They are herding us deeper.',
+    cardSearch: 'vex',
+  },
+  split_signal: {
+    name: 'Lira',
+    role: 'Ironveil Signalbearer',
+    quote: 'Two signals. One is human. One is calling my name.',
+    cardSearch: 'lira',
+  },
+  hidden_cache: {
+    name: 'Nyx',
+    role: 'Ironveil Ghostline',
+    quote: 'Old caches do not stay hidden by accident.',
+    cardSearch: 'nyx',
+  },
+  null_sentinel: {
+    name: 'Null Sentinel',
+    role: 'Corrupted Ironveil Boss',
+    quote: 'The armor is Ironveil. The heart is something else.',
+    cardSearch: 'sentinel',
+  },
+};
+
 async function getAuthUser() {
   const {
     data: { user },
@@ -1071,6 +1110,16 @@ const startNode = (node) => {
                     const meta = NODE_TYPE_META[node.node_type] || NODE_TYPE_META.story;
                     const enemyPower = getEnemyPower(node.enemy_data || {});
                     const processing = processingNodeId === node.id;
+                    
+                    const character = NODE_CHARACTER_MAP[node.node_key];
+                    
+                    const characterCard = character?.cardSearch
+                    ? cards.find((card) =>
+                      String(card.name || '')
+                    .toLowerCase()
+                    .includes(character.cardSearch.toLowerCase())
+                  )
+                  : null;
 
                     return (
                       <motion.div
@@ -1078,17 +1127,26 @@ const startNode = (node) => {
                         initial={{ opacity: 0, y: 14 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: index * 0.04 }}
-                        className={`relative rounded-2xl border p-3 ${
+                        className={`relative overflow-hidden rounded-2xl border p-3 ${
                           unlocked
-                            ? `${meta.border} ${meta.bg}`
-                            : 'border-border bg-muted/20 opacity-70'
+                          ? `${meta.border} ${meta.bg}`
+                          : 'border-border bg-muted/20 opacity-70'
                         }`}
                       >
                         {index > 0 && (
                           <div className="absolute -top-3 left-8 h-3 w-0.5 bg-border" />
                         )}
+                        {characterCard?.image_url && (
+                          <img
+                            src={characterCard.image_url}
+                            alt={character?.name || node.title}
+                            className="absolute right-0 top-0 h-full w-32 object-cover object-top opacity-25 pointer-events-none"
+                            />
+                            )}
+                                                       
+                            <div className="absolute inset-0 bg-gradient-to-r from-card/95 via-card/80 to-card/30 pointer-events-none" />
 
-                        <div className="flex items-center gap-3">
+                        <div className="relative z-10 flex items-center gap-3">
                           <div className="w-12 h-12 rounded-xl bg-background/70 flex items-center justify-center text-2xl border border-border">
                             {unlocked ? meta.icon : <Lock className="w-5 h-5 text-muted-foreground" />}
                           </div>
@@ -1112,6 +1170,19 @@ const startNode = (node) => {
                             <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2">
                               {node.story_text}
                             </p>
+                            {character && (
+                              <div className="mt-2 rounded-lg border border-primary/20 bg-black/20 px-2 py-1.5">
+                                <p className="text-[10px] text-primary font-bold">
+                                  {character.name}
+                                  <span className="text-muted-foreground font-normal">
+                                    {' '}· {character.role}
+                                    </span>
+                                    </p>
+                                    <p className="text-[10px] text-foreground/80 italic mt-0.5">
+                                      “{character.quote}”
+                                    </p>
+                                  </div>
+                                )}
                           </div>
 
                           <Button
