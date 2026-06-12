@@ -156,10 +156,9 @@ export default function CreateTradeModal({
   }, [myPlayerCards, cards]);
 
   const getMax = (key) => {
-    if (key === 'gold') return profile?.gold || 0;
-    return inventory?.[key] || 0;
-  };
-
+  if (key === 'gold') return profile?.gold || 0;
+  return inventory?.[key] || 0;
+};
   const selectedOfferCard = useMemo(() => {
     if (offerCardId === 'none') return null;
 
@@ -213,42 +212,43 @@ export default function CreateTradeModal({
   };
 
   const validateBeforeConfirm = () => {
-    if (!myEmail) {
-      toast.error('You need to be logged in to post a trade');
+  if (!myEmail) {
+    toast.error('You need to be logged in to post a trade');
+    return false;
+  }
+
+  if (!profile) {
+    toast.error('Profile has not loaded yet');
+    return false;
+  }
+
+  if (!hasAssets(offerData)) {
+    toast.error('Add at least one offered item');
+    return false;
+  }
+
+  if (!hasAssets(wantData)) {
+    toast.error('Add at least one requested item');
+    return false;
+  }
+
+  for (const resource of TRADE_RESOURCES) {
+    const amount = Number(offer[resource.key] || 0);
+
+    if (amount < 0) {
+      toast.error(`${resource.label} cannot be negative`);
       return false;
     }
 
-    if (!profile || !inventory) {
-      toast.error('Profile or inventory has not loaded yet');
+    if (amount > getMax(resource.key)) {
+      toast.error(`Not enough ${resource.label}`);
       return false;
     }
+  }
 
-    if (!hasAssets(offerData)) {
-      toast.error('Add at least one offered item');
-      return false;
-    }
-
-    if (!hasAssets(wantData)) {
-      toast.error('Add at least one requested item');
-      return false;
-    }
-
-    for (const resource of TRADE_RESOURCES) {
-      const amount = Number(offer[resource.key] || 0);
-
-      if (amount < 0) {
-        toast.error(`${resource.label} cannot be negative`);
-        return false;
-      }
-
-      if (amount > getMax(resource.key)) {
-        toast.error(`Not enough ${resource.label}`);
-        return false;
-      }
-    }
-
-    return true;
-  };
+  setConfirming(true);
+  return true;
+};
 
   const submit = async () => {
     if (!validateBeforeConfirm()) return;
@@ -431,11 +431,8 @@ export default function CreateTradeModal({
             />
 
             <Button
-              onClick={() => {
-                if (validateBeforeConfirm()) {
-                  setConfirming(true);
-                }
-              }}
+              type="button"
+              onClick={validateBeforeConfirm}
               className="w-full"
             >
               Review Trade
