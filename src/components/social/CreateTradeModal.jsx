@@ -251,36 +251,58 @@ export default function CreateTradeModal({
 };
 
   const submit = async () => {
-    if (!validateBeforeConfirm()) return;
+  if (!validateBeforeConfirm()) return;
 
-    setSaving(true);
+  setSaving(true);
 
-    try {
-      const { error } = await supabase.rpc('post_bazaar_trade', {
-        p_title: title.trim() || 'Bazaar Trade',
-        p_offer_data: offerData,
-        p_want_data: wantData,
-        p_note: note.trim(),
-      });
+  try {
+    console.log('Posting Bazaar trade payload:', {
+      title: title.trim() || 'Bazaar Trade',
+      offerData,
+      wantData,
+      note: note.trim(),
+    });
 
-      if (error) throw error;
+    const { data, error } = await supabase.rpc('post_bazaar_trade', {
+      p_title: title.trim() || 'Bazaar Trade',
+      p_offer_data: offerData,
+      p_want_data: wantData,
+      p_note: note.trim() || '',
+    });
 
-      queryClient.invalidateQueries({ queryKey: ['tradePosts'] });
-      queryClient.invalidateQueries({ queryKey: ['tradeClaims'] });
-      queryClient.invalidateQueries({ queryKey: ['playerProfile'] });
-      queryClient.invalidateQueries({ queryKey: ['playerInventory'] });
-      queryClient.invalidateQueries({ queryKey: ['playerCards'] });
-
-      toast.success('Trade posted to Bazaar');
-      resetForm();
-      onClose();
-    } catch (error) {
-      console.error(error);
-      toast.error(error.message || 'Could not post trade');
-    } finally {
-      setSaving(false);
+    if (error) {
+      console.error('post_bazaar_trade RPC error:', error);
+      throw error;
     }
-  };
+
+    console.log('Bazaar trade posted:', data);
+
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['tradePosts'] }),
+      queryClient.invalidateQueries({ queryKey: ['tradeClaims'] }),
+      queryClient.invalidateQueries({ queryKey: ['playerProfile'] }),
+      queryClient.invalidateQueries({ queryKey: ['playerInventory'] }),
+      queryClient.invalidateQueries({ queryKey: ['playerCards'] }),
+    ]);
+
+    toast.success('Trade posted to Bazaar');
+    resetForm();
+    onClose();
+  } catch (error) {
+    console.error('Could not post Bazaar trade:', error);
+
+    const message =
+      error?.message ||
+      error?.details ||
+      error?.hint ||
+      'Could not post trade';
+
+    toast.error(message);
+    alert(message);
+  } finally {
+    setSaving(false);
+  }
+};
 
   const close = () => {
     if (!saving) {
@@ -432,7 +454,11 @@ export default function CreateTradeModal({
 
             <Button
               type="button"
-              onClick={validateBeforeConfirm}
+              onClick={() => {
+                if (validateBeforeConfirm()) {
+                  setConfirming(true);
+                }
+              }}
               className="w-full"
             >
               Review Trade
