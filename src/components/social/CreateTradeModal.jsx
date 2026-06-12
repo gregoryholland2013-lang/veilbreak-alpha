@@ -250,54 +250,68 @@ export default function CreateTradeModal({
   };
 
   const validateBeforeConfirm = () => {
-    const block = (message) => {
-      console.warn('Bazaar review blocked:', message, {
-        myEmail,
-        profile,
-        inventory,
-        offer,
-        want,
-        offerCardId,
-        wantCardId,
-        offerData,
-        wantData,
-      });
+  const block = (message) => {
+    console.warn('Bazaar review blocked:', message, {
+      myEmail,
+      profile,
+      inventory,
+      offer,
+      want,
+      offerCardId,
+      wantCardId,
+      offerData,
+      wantData,
+    });
 
-      toast.error(message);
-      return false;
-    };
-
-    if (!myEmail) {
-      return block('You need to be logged in to post a trade');
-    }
-
-    if (!profile) {
-      return block('Profile has not loaded yet');
-    }
-
-    if (!hasAssets(offerData)) {
-      return block('Add at least one offered item or card');
-    }
-
-    if (!hasAssets(wantData)) {
-      return block('Add at least one requested item or card');
-    }
-
-    for (const resource of TRADE_RESOURCES) {
-      const amount = Number(offer[resource.key] || 0);
-
-      if (amount < 0) {
-        return block(`${resource.label} cannot be negative`);
-      }
-
-      if (amount > getMax(resource.key)) {
-        return block(`Not enough ${resource.label}`);
-      }
-    }
-
-    setConfirming(true);
-    return true;
+    toast.error(message);
+    alert(message);
+    return false;
   };
+
+  if (!myEmail) {
+    return block('You need to be logged in to post a trade');
+  }
+
+  if (!hasAssets(offerData)) {
+    return block('Add at least one offered item or card');
+  }
+
+  if (!hasAssets(wantData)) {
+    return block('Add at least one requested item or card');
+  }
+
+  for (const resource of TRADE_RESOURCES) {
+    const amount = Number(offer[resource.key] || 0);
+
+    if (amount < 0) {
+      return block(`${resource.label} cannot be negative`);
+    }
+
+    if (amount === 0) {
+      continue;
+    }
+
+    if (resource.key === 'gold' && !profile) {
+      return block('Profile has not loaded yet, so gold cannot be offered');
+    }
+
+    if (resource.key !== 'gold' && !inventory) {
+      return block(`${resource.label} inventory has not loaded yet`);
+    }
+
+    if (amount > getMax(resource.key)) {
+      return block(`Not enough ${resource.label}`);
+    }
+  }
+
+  console.log('Bazaar review passed:', {
+    offerData,
+    wantData,
+  });
+
+  setConfirming(true);
+  return true;
+};
 
   const submit = async () => {
     if (!validateBeforeConfirm()) return;
