@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   useCards,
   usePlayerCards,
@@ -10,7 +11,7 @@ import {
 import GameCard from '@/components/game/GameCard';
 import CardDetailModal from '@/components/game/CardDetailModal';
 import PageHeader from '@/components/game/PageHeader';
-import CardProtectionButton from "@/components/cards/CardProtectionButton";
+import CardProtectionButton from '@/components/cards/CardProtectionButton';
 import {
   Select,
   SelectContent,
@@ -146,6 +147,8 @@ function getOwnedCardPower(playerCard, card) {
 }
 
 export default function Collection() {
+  const queryClient = useQueryClient();
+
   const { data: cards = [] } = useCards();
   const { data: playerCards = [] } = usePlayerCards();
   const { data: profile } = useProfile();
@@ -203,6 +206,15 @@ export default function Collection() {
       return true;
     });
   }, [enrichedCards, factionFilter, rarityFilter]);
+
+  const handleProtectionUpdated = (updatedCard) => {
+    queryClient.invalidateQueries({ queryKey: ['playerCards'] });
+    queryClient.invalidateQueries({ queryKey: ['collection'] });
+
+    if (selectedPlayerCard?.id === updatedCard?.id) {
+      setSelectedPlayerCard(updatedCard);
+    }
+  };
 
   const handleLevelUp = async (pc) => {
     if (!profile) {
@@ -309,6 +321,13 @@ export default function Collection() {
                   card={card}
                   playerCard={playerCard}
                   size="sm"
+                  actionSlot={
+                    <CardProtectionButton
+                      playerCard={playerCard}
+                      size="xs"
+                      onUpdated={handleProtectionUpdated}
+                    />
+                  }
                   onClick={() => {
                     setSelectedCard(card);
                     setSelectedPlayerCard(playerCard);

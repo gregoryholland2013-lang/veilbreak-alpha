@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Sword, Shield, Heart, Sparkles } from 'lucide-react';
+import { Sword, Shield, Heart, Sparkles, Lock } from 'lucide-react';
 
 const rarityStyles = {
   common: {
@@ -212,6 +212,8 @@ export default function GameCard({
   onClick,
   size = 'md',
   showStats = true,
+  actionSlot = null,
+  showProtectionBadge = true,
 }) {
   if (!card) return null;
 
@@ -220,6 +222,7 @@ export default function GameCard({
   const level = playerCard?.level || 1;
   const stats = getOwnedCardStats(playerCard, card);
   const stageLabel = getStageLabel(playerCard);
+  const isProtected = Boolean(playerCard?.is_protected);
 
   const sizeClasses = {
     sm: 'w-24 h-36',
@@ -239,115 +242,142 @@ export default function GameCard({
     lg: 'text-[10px]',
   };
 
-  return (
-    <motion.div
-      whileHover={{ scale: 1.06, y: -6, transition: { duration: 0.18 } }}
-      whileTap={{ scale: 0.97 }}
-      onClick={onClick}
-      className={`relative ${sizeClasses[size] || sizeClasses.md} rounded-xl overflow-hidden cursor-pointer
-        border-2 ${style.border} ${style.glow} bg-gradient-to-b ${style.gradient} transition-all duration-300 select-none`}
-    >
-      {style.shine && (
-        <motion.div
-          animate={{ x: ['-100%', '220%'] }}
-          transition={{
-            repeat: Infinity,
-            duration: 3,
-            ease: 'linear',
-            repeatDelay: 1.5,
-          }}
-          className="absolute inset-0 z-20 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 pointer-events-none"
-        />
-      )}
+  const cardSizeClass = sizeClasses[size] || sizeClasses.md;
 
-      <div className={`relative ${artHeight[size] || artHeight.md} overflow-hidden`}>
-        {card.image_url ? (
-          <img
-            src={card.image_url}
-            alt={card.name}
-            className="w-full h-full object-cover"
+  return (
+    <div className={`relative ${cardSizeClass}`}>
+      <motion.div
+        whileHover={{ scale: 1.06, y: -6, transition: { duration: 0.18 } }}
+        whileTap={{ scale: 0.97 }}
+        onClick={onClick}
+        className={`absolute inset-0 rounded-xl overflow-hidden cursor-pointer
+          border-2 ${style.border} ${style.glow} bg-gradient-to-b ${style.gradient} transition-all duration-300 select-none`}
+      >
+        {style.shine && (
+          <motion.div
+            animate={{ x: ['-100%', '220%'] }}
+            transition={{
+              repeat: Infinity,
+              duration: 3,
+              ease: 'linear',
+              repeatDelay: 1.5,
+            }}
+            className="absolute inset-0 z-20 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 pointer-events-none"
           />
-        ) : (
-          <div
-            className={`w-full h-full ${
-              elementBg[card.element] || elementBg.dark
-            } flex items-center justify-center`}
-          >
-            <motion.span
-              animate={{ scale: [1, 1.08, 1] }}
-              transition={{ duration: 3, repeat: Infinity }}
-              className="text-5xl drop-shadow-lg"
-            >
-              {elementIcons[card.element] || '⚔️'}
-            </motion.span>
-          </div>
         )}
 
-        <div className="absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-black/70 to-transparent" />
+        <div
+          className={`relative ${artHeight[size] || artHeight.md} overflow-hidden`}
+        >
+          {card.image_url ? (
+            <img
+              src={card.image_url}
+              alt={card.name}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div
+              className={`w-full h-full ${
+                elementBg[card.element] || elementBg.dark
+              } flex items-center justify-center`}
+            >
+              <motion.span
+                animate={{ scale: [1, 1.08, 1] }}
+                transition={{ duration: 3, repeat: Infinity }}
+                className="text-5xl drop-shadow-lg"
+              >
+                {elementIcons[card.element] || '⚔️'}
+              </motion.span>
+            </div>
+          )}
 
-        <div className="absolute top-1.5 left-1.5 text-sm bg-black/50 backdrop-blur-sm rounded-full w-6 h-6 flex items-center justify-center leading-none">
-          {elementIcons[card.element] || '⚔️'}
+          <div className="absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-black/70 to-transparent" />
+
+          <div className="absolute top-1.5 left-1.5 text-sm bg-black/50 backdrop-blur-sm rounded-full w-6 h-6 flex items-center justify-center leading-none">
+            {elementIcons[card.element] || '⚔️'}
+          </div>
+
+          {playerCard && (
+            <div className="absolute top-1.5 right-1.5 text-[9px] font-black bg-black/60 backdrop-blur-sm rounded-md px-1.5 py-0.5 text-primary font-display leading-none">
+              Lv{level}
+            </div>
+          )}
+
+          {isProtected && !actionSlot && showProtectionBadge && (
+            <div className="absolute top-8 right-1.5 w-5 h-5 rounded-lg border border-yellow-400/60 bg-black/75 backdrop-blur-sm flex items-center justify-center">
+              <Lock className="w-3 h-3 text-yellow-300" />
+            </div>
+          )}
+
+          {stageLabel && (
+            <div className="absolute bottom-1 right-1 text-[8px] font-black bg-primary/80 text-primary-foreground rounded-md px-1 py-0.5 font-display leading-none">
+              {stageLabel}
+            </div>
+          )}
+
+          {playerCard?.evolve_count > 0 && (
+            <div className="absolute bottom-1 left-1 flex gap-0.5">
+              {Array.from({
+                length: Math.min(Number(playerCard.evolve_count), 3),
+              }).map((_, i) => (
+                <Sparkles key={i} className="w-2.5 h-2.5 text-primary" />
+              ))}
+            </div>
+          )}
         </div>
 
-        {playerCard && (
-          <div className="absolute top-1.5 right-1.5 text-[9px] font-black bg-black/60 backdrop-blur-sm rounded-md px-1.5 py-0.5 text-primary font-display leading-none">
-            Lv{level}
-          </div>
+        <div className="px-2 pt-1.5 pb-2 flex flex-col gap-1">
+          <h3 className="font-display text-[10px] font-bold truncate text-foreground leading-tight">
+            {card.name}
+          </h3>
+
+          <span
+            className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full self-start ${style.label}`}
+          >
+            {rarity.replaceAll('_', ' ')}
+          </span>
+
+          {showStats && (
+            <div
+              className={`flex gap-1.5 ${
+                statTextSize[size] || statTextSize.md
+              } mt-0.5 flex-wrap`}
+            >
+              <span className="flex items-center gap-0.5 text-red-400 font-bold">
+                <Sword className="w-2.5 h-2.5" />
+                {stats.attack}
+              </span>
+
+              <span className="flex items-center gap-0.5 text-blue-400 font-bold">
+                <Shield className="w-2.5 h-2.5" />
+                {stats.defense}
+              </span>
+
+              <span className="flex items-center gap-0.5 text-green-400 font-bold">
+                <Heart className="w-2.5 h-2.5" />
+                {stats.hp}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {rarity !== 'common' && (
+          <div
+            className={`absolute top-0 left-0 right-0 h-0.5 ${style.edge} opacity-80`}
+          />
         )}
+      </motion.div>
 
-        {stageLabel && (
-          <div className="absolute bottom-1 right-1 text-[8px] font-black bg-primary/80 text-primary-foreground rounded-md px-1 py-0.5 font-display leading-none">
-            {stageLabel}
-          </div>
-        )}
-
-        {playerCard?.evolve_count > 0 && (
-          <div className="absolute bottom-1 left-1 flex gap-0.5">
-            {Array.from({ length: Math.min(Number(playerCard.evolve_count), 3) }).map(
-              (_, i) => (
-                <Sparkles key={i} className="w-2.5 h-2.5 text-primary" />
-              )
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="px-2 pt-1.5 pb-2 flex flex-col gap-1">
-        <h3 className="font-display text-[10px] font-bold truncate text-foreground leading-tight">
-          {card.name}
-        </h3>
-
-        <span
-          className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full self-start ${style.label}`}
-        >
-          {rarity.replaceAll('_', ' ')}
-        </span>
-
-        {showStats && (
-          <div className={`flex gap-1.5 ${statTextSize[size] || statTextSize.md} mt-0.5 flex-wrap`}>
-            <span className="flex items-center gap-0.5 text-red-400 font-bold">
-              <Sword className="w-2.5 h-2.5" />
-              {stats.attack}
-            </span>
-
-            <span className="flex items-center gap-0.5 text-blue-400 font-bold">
-              <Shield className="w-2.5 h-2.5" />
-              {stats.defense}
-            </span>
-
-            <span className="flex items-center gap-0.5 text-green-400 font-bold">
-              <Heart className="w-2.5 h-2.5" />
-              {stats.hp}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {rarity !== 'common' && (
+      {actionSlot && (
         <div
-          className={`absolute top-0 left-0 right-0 h-0.5 ${style.edge} opacity-80`}
-        />
+          className="absolute -top-1 -right-1 z-[80]"
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          {actionSlot}
+        </div>
       )}
-    </motion.div>
+    </div>
   );
 }
