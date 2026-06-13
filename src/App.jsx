@@ -20,6 +20,7 @@ import Social from './pages/Social';
 import GuildPage from './pages/Guild';
 import EventDungeon from './pages/EventDungeon';
 import HolyWars from './pages/HolyWars';
+import RaidEvent from "./pages/RaidEvent";
 
 const AuthenticatedApp = () => {
   return (
@@ -37,6 +38,7 @@ const AuthenticatedApp = () => {
         <Route path="/guild" element={<GuildPage />} />
         <Route path="/event" element={<EventDungeon />} />
         <Route path="/holy-wars" element={<HolyWars />} />
+        <Route path="/raid-event" element={<RaidEvent />} />
       </Route>
 
       <Route path="*" element={<PageNotFound />} />
