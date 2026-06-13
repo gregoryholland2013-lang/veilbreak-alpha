@@ -1,6 +1,7 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, Coins, Gem } from 'lucide-react';
+import { Sparkles, Coins, Gem, Ticket } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import {
   useCards,
@@ -43,6 +44,8 @@ function pickRarity() {
 }
 
 export default function Summon() {
+  const queryClient = useQueryClient();
+
   const { data: cards = [], isLoading: cardsLoading } = useCards();
   const { data: profile = null, isLoading: profileLoading } = useProfile();
 
@@ -54,6 +57,46 @@ export default function Summon() {
   const [summoning, setSummoning] = useState(false);
   const [revealedCards, setRevealedCards] = useState([]);
   const [showResults, setShowResults] = useState(false);
+  const [summonTickets, setSummonTickets] = useState(0);
+  const [loadingTickets, setLoadingTickets] = useState(true);
+
+  useEffect(() => {
+    loadSummonTickets();
+  }, []);
+
+  async function loadSummonTickets() {
+    setLoadingTickets(true);
+
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) throw userError;
+
+      if (!user) {
+        setSummonTickets(0);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('player_items')
+        .select('quantity')
+        .eq('user_id', user.id)
+        .eq('item_key', 'summon_ticket')
+        .maybeSingle();
+
+      if (error) throw error;
+
+      setSummonTickets(Number(data?.quantity || 0));
+    } catch (error) {
+      console.error(error);
+      setSummonTickets(0);
+    } finally {
+      setLoadingTickets(false);
+    }
+  }
 
   const activeCards = useMemo(() => {
     return (cards || []).filter((card) => {
@@ -81,24 +124,28 @@ export default function Summon() {
         !excludedIds.has(card.id)
     );
 
-    /**
-     * Fallback 1:
-     * If the rolled rarity has no available cards, use any non-excluded active card.
-     */
     if (pool.length === 0) {
       pool = activeCards.filter((card) => !excludedIds.has(card.id));
     }
 
-    /**
-     * Fallback 2:
-     * If the summon pool is smaller than the requested pull count,
-     * allow duplicates rather than breaking the summon.
-     */
     if (pool.length === 0) {
       pool = activeCards;
     }
 
     return pool[Math.floor(Math.random() * pool.length)];
+  };
+
+  const spendSummonTickets = async (count) => {
+    const { data, error } = await supabase.rpc('spend_player_item', {
+      p_item_key: 'summon_ticket',
+      p_quantity: count,
+    });
+
+    if (error) throw error;
+
+    setSummonTickets(Number(data?.remaining || 0));
+
+    return data;
   };
 
   const doSummon = async (count, currency) => {
@@ -110,7 +157,7 @@ export default function Summon() {
     setRevealedCards([]);
 
     try {
-      if (profileLoading || cardsLoading) {
+      if (profileLoading || cardsLoading || loadingTickets) {
         toast.error('Game data is still loading');
         return;
       }
@@ -127,6 +174,7 @@ export default function Summon() {
 
       const totalGoldCost = SUMMON_COST_GOLD * count;
       const totalGemCost = SUMMON_COST_GEMS * count;
+      const totalTicketCost = count;
 
       if (currency === 'gold' && (profile.gold || 0) < totalGoldCost) {
         toast.error('Not enough gold!');
@@ -136,6 +184,17 @@ export default function Summon() {
       if (currency === 'gems' && (profile.gems || 0) < totalGemCost) {
         toast.error('Not enough gems!');
         return;
+      }
+
+      if (currency === 'ticket' && summonTickets < totalTicketCost) {
+        toast.error(
+          `Not enough Summon Tickets. Need ${totalTicketCost}, you have ${summonTickets}.`
+        );
+        return;
+      }
+
+      if (currency === 'ticket') {
+        await spendSummonTickets(totalTicketCost);
       }
 
       await new Promise((resolve) => setTimeout(resolve, 900));
@@ -163,6 +222,7 @@ export default function Summon() {
           hp: card.base_hp || 300,
           max_hp: card.base_hp || 300,
           locked: false,
+          is_protected: false,
         });
 
         const { error: collectionError } = await supabase.rpc(
@@ -182,32 +242,60 @@ export default function Summon() {
         });
       }
 
-      const costData =
-        currency === 'gold'
-          ? { gold: (profile.gold || 0) - totalGoldCost }
-          : { gems: (profile.gems || 0) - totalGemCost };
+      if (currency === 'gold') {
+        await updateProfile.mutateAsync({
+          id: profile.id,
+          data: {
+            gold: (profile.gold || 0) - totalGoldCost,
+          },
+        });
+      }
 
-      await updateProfile.mutateAsync({
-        id: profile.id,
-        data: costData,
-      });
+      if (currency === 'gems') {
+        await updateProfile.mutateAsync({
+          id: profile.id,
+          data: {
+            gems: (profile.gems || 0) - totalGemCost,
+          },
+        });
+      }
+
+      await queryClient.invalidateQueries({ queryKey: ['profile'] });
+      await queryClient.invalidateQueries({ queryKey: ['playerCards'] });
+      await queryClient.invalidateQueries({ queryKey: ['playerItems'] });
+      await queryClient.invalidateQueries({ queryKey: ['inventory'] });
+
+      if (currency !== 'ticket') {
+        await loadSummonTickets();
+      }
 
       setRevealedCards(pulled);
       setShowResults(true);
 
-      toast.success(
-        count === 1 ? 'Card summoned!' : `${count} cards summoned!`
-      );
+      if (currency === 'ticket') {
+        toast.success(
+          count === 1
+            ? 'Card summoned with Summon Ticket!'
+            : `${count} cards summoned with Summon Tickets!`
+        );
+      } else {
+        toast.success(
+          count === 1 ? 'Card summoned!' : `${count} cards summoned!`
+        );
+      }
     } catch (error) {
       console.error('Summon failed:', error);
       toast.error(error.message || 'Summon failed');
+      await loadSummonTickets();
     } finally {
       summonLockRef.current = false;
       setSummoning(false);
     }
   };
 
-  const isLoading = cardsLoading || profileLoading;
+  const isLoading = cardsLoading || profileLoading || loadingTickets;
+  const canUseTicketSingle = summonTickets >= 1;
+  const canUseTicketTen = summonTickets >= 10;
 
   return (
     <div className="max-w-lg mx-auto space-y-6">
@@ -222,7 +310,8 @@ export default function Summon() {
 
         {!isLoading && activeCards.length === 0 && (
           <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-center text-sm text-muted-foreground">
-            No active cards are available. Add active cards with artwork in Supabase first.
+            No active cards are available. Add active base cards with artwork in
+            Supabase first.
           </div>
         )}
 
@@ -253,7 +342,7 @@ export default function Summon() {
           />
         </motion.div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <div className="rounded-xl border border-border bg-card p-3 text-center">
             <p className="text-xs text-muted-foreground">Gold</p>
             <p className="font-display font-bold text-yellow-400">
@@ -267,66 +356,124 @@ export default function Summon() {
               {(profile?.gems || 0).toLocaleString()}
             </p>
           </div>
+
+          <div className="rounded-xl border border-purple-400/40 bg-purple-950/20 p-3 text-center">
+            <p className="text-xs text-muted-foreground">Tickets</p>
+            <p className="font-display font-bold text-purple-300">
+              {Number(summonTickets || 0).toLocaleString()}
+            </p>
+          </div>
         </div>
 
-        {/* Summon Buttons */}
         {!showResults && (
           <div className="space-y-3">
+            <div className="rounded-xl border border-purple-400/30 bg-purple-950/20 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-display font-bold text-purple-200">
+                    Summon Tickets
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    1 ticket = 1 summon. Tickets are consumed before gold or
+                    gems.
+                  </p>
+                </div>
+
+                <div className="w-10 h-10 rounded-xl bg-purple-400/10 border border-purple-400/30 flex items-center justify-center">
+                  <Ticket className="w-5 h-5 text-purple-300" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Button
+                  onClick={() => doSummon(1, 'ticket')}
+                  disabled={
+                    summoning ||
+                    isLoading ||
+                    activeCards.length === 0 ||
+                    !canUseTicketSingle
+                  }
+                  className="gap-2 bg-gradient-to-r from-purple-600 to-fuchsia-700 hover:from-purple-500 hover:to-fuchsia-600 text-white disabled:from-slate-700 disabled:to-slate-700"
+                  size="lg"
+                >
+                  <Ticket className="w-5 h-5" />
+                  {summoning ? 'Summoning…' : 'x1 · 1 Ticket'}
+                </Button>
+
+                <Button
+                  onClick={() => doSummon(10, 'ticket')}
+                  disabled={
+                    summoning ||
+                    isLoading ||
+                    activeCards.length === 0 ||
+                    !canUseTicketTen
+                  }
+                  className="gap-2 bg-gradient-to-r from-fuchsia-700 to-purple-800 hover:from-fuchsia-600 hover:to-purple-700 text-white disabled:from-slate-700 disabled:to-slate-700"
+                  size="lg"
+                >
+                  <Ticket className="w-5 h-5" />
+                  {summoning ? 'Summoning…' : 'x10 · 10 Tickets'}
+                </Button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
-            <Button
-              onClick={() => doSummon(1, 'gold')}
-              disabled={summoning || isLoading || activeCards.length === 0}
-              className="gap-2 bg-gradient-to-r from-yellow-600 to-yellow-700 hover:from-yellow-500 hover:to-yellow-600 text-white"
-              size="lg"
-            >
-              <Coins className="w-5 h-5" />
-              {summoning ? 'Summoning…' : `x1 · ${SUMMON_COST_GOLD} Gold`}
-            </Button>
+              <Button
+                onClick={() => doSummon(1, 'gold')}
+                disabled={summoning || isLoading || activeCards.length === 0}
+                className="gap-2 bg-gradient-to-r from-yellow-600 to-yellow-700 hover:from-yellow-500 hover:to-yellow-600 text-white"
+                size="lg"
+              >
+                <Coins className="w-5 h-5" />
+                {summoning ? 'Summoning…' : `x1 · ${SUMMON_COST_GOLD} Gold`}
+              </Button>
 
-            <Button
-              onClick={() => doSummon(10, 'gold')}
-              disabled={summoning || isLoading || activeCards.length === 0}
-              className="gap-2 bg-gradient-to-r from-yellow-700 to-amber-800 hover:from-yellow-600 hover:to-amber-700 text-white"
-              size="lg"
-            >
-              <Coins className="w-5 h-5" />
-              {summoning ? 'Summoning…' : `x10 · ${SUMMON_COST_GOLD * 10} Gold`}
-            </Button>
+              <Button
+                onClick={() => doSummon(10, 'gold')}
+                disabled={summoning || isLoading || activeCards.length === 0}
+                className="gap-2 bg-gradient-to-r from-yellow-700 to-amber-800 hover:from-yellow-600 hover:to-amber-700 text-white"
+                size="lg"
+              >
+                <Coins className="w-5 h-5" />
+                {summoning
+                  ? 'Summoning…'
+                  : `x10 · ${SUMMON_COST_GOLD * 10} Gold`}
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <Button
+                onClick={() => doSummon(3, 'gems')}
+                disabled={summoning || isLoading || activeCards.length === 0}
+                className="gap-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white"
+                size="lg"
+              >
+                <Gem className="w-4 h-4" />
+                {summoning ? 'Summoning…' : `x3 · ${SUMMON_COST_GEMS * 3}`}
+              </Button>
+
+              <Button
+                onClick={() => doSummon(10, 'gems')}
+                disabled={summoning || isLoading || activeCards.length === 0}
+                className="gap-2 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 hover:to-blue-600 text-white"
+                size="lg"
+              >
+                <Gem className="w-4 h-4" />
+                {summoning ? 'Summoning…' : `x10 · ${SUMMON_COST_GEMS * 10}`}
+              </Button>
+
+              <Button
+                onClick={() => doSummon(25, 'gems')}
+                disabled={summoning || isLoading || activeCards.length === 0}
+                className="gap-2 bg-gradient-to-r from-purple-600 to-blue-800 hover:from-purple-500 hover:to-blue-700 text-white"
+                size="lg"
+              >
+                <Gem className="w-4 h-4" />
+                {summoning ? 'Summoning…' : `x25 · ${SUMMON_COST_GEMS * 25}`}
+              </Button>
+            </div>
           </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <Button
-              onClick={() => doSummon(3, 'gems')}
-              disabled={summoning || isLoading || activeCards.length === 0}
-              className="gap-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white"
-              size="lg"
-            >
-              <Gem className="w-4 h-4" />
-              {summoning ? 'Summoning…' : `x3 · ${SUMMON_COST_GEMS * 3}`}
-            </Button>
-
-            <Button
-              onClick={() => doSummon(10, 'gems')}
-              disabled={summoning || isLoading || activeCards.length === 0}
-              className="gap-2 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 hover:to-blue-600 text-white"
-              size="lg"
-            >
-              <Gem className="w-4 h-4" />
-              {summoning ? 'Summoning…' : `x10 · ${SUMMON_COST_GEMS * 10}`}
-            </Button>
-
-            <Button
-              onClick={() => doSummon(25, 'gems')}
-              disabled={summoning || isLoading || activeCards.length === 0}
-              className="gap-2 bg-gradient-to-r from-purple-600 to-blue-800 hover:from-purple-500 hover:to-blue-700 text-white"
-              size="lg"
-            >
-              <Gem className="w-4 h-4" />
-              {summoning ? 'Summoning…' : `x25 · ${SUMMON_COST_GEMS * 25}`}
-            </Button>
-          </div>
-        </div>
-      )}
+        )}
 
         <AnimatePresence>
           {showResults && revealedCards.length > 0 && (
@@ -356,6 +503,7 @@ export default function Summon() {
                 onClick={() => {
                   setShowResults(false);
                   setRevealedCards([]);
+                  loadSummonTickets();
                 }}
                 variant="outline"
                 className="w-full"
