@@ -13,6 +13,7 @@ import {
 import { supabase } from '@/lib/supabaseClient';
 import PageHeader from '@/components/game/PageHeader';
 import { Input } from '@/components/ui/input';
+import { toast } from 'sonner';
 
 const rarityStyles = {
   common: 'border-slate-500/40 bg-slate-900/80 text-slate-200',
@@ -32,12 +33,19 @@ const typeIcons = {
   defense: Shield,
 };
 
+const DIRECT_USE_ITEMS = new Set([
+  'stamina_potion',
+  'attack_refill',
+  'defense_refill',
+]);
+
 export default function Inventory() {
   const [items, setItems] = useState([]);
   const [profile, setProfile] = useState(null);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [usingItemKey, setUsingItemKey] = useState(null);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
@@ -126,6 +134,36 @@ export default function Inventory() {
     }
   }
 
+  async function useItem(item) {
+    if (!DIRECT_USE_ITEMS.has(item.item_key)) {
+      toast.error(`${item.name} is used inside another game system.`);
+      return;
+    }
+
+    setUsingItemKey(item.item_key);
+    setMessage('');
+
+    try {
+      const { data, error } = await supabase.rpc('consume_player_item', {
+        p_item_key: item.item_key,
+        p_quantity: 1,
+      });
+
+      if (error) throw error;
+
+      toast.success(data?.message || `${item.name} used.`);
+      setMessage(data?.message || `${item.name} used.`);
+
+      await loadInventory();
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Could not use item.');
+      setMessage(error.message || 'Could not use item.');
+    } finally {
+      setUsingItemKey(null);
+    }
+  }
+
   const types = useMemo(() => {
     const unique = new Set(items.map((item) => item.item_type));
     return ['all', ...Array.from(unique)];
@@ -164,7 +202,7 @@ export default function Inventory() {
 
       <div className="px-4 space-y-4">
         {message && (
-          <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          <div className="rounded-xl border border-primary/40 bg-primary/10 p-3 text-sm text-primary">
             {message}
           </div>
         )}
@@ -205,7 +243,12 @@ export default function Inventory() {
 
         <div className="space-y-3">
           {filteredItems.map((item) => (
-            <ItemCard key={item.id} item={item} />
+            <ItemCard
+              key={item.id}
+              item={item}
+              using={usingItemKey === item.item_key}
+              onUse={() => useItem(item)}
+            />
           ))}
         </div>
 
@@ -238,9 +281,10 @@ function CurrencyCard({ label, value, icon: Icon }) {
   );
 }
 
-function ItemCard({ item }) {
+function ItemCard({ item, onUse, using }) {
   const Icon = typeIcons[item.item_type] || Package;
   const style = rarityStyles[item.rarity] || rarityStyles.common;
+  const canUseDirectly = DIRECT_USE_ITEMS.has(item.item_key);
 
   return (
     <div className={`rounded-2xl border p-4 ${style}`}>
@@ -266,6 +310,21 @@ function ItemCard({ item }) {
           {item.description && (
             <p className="text-xs opacity-75 mt-2 leading-snug">
               {item.description}
+            </p>
+          )}
+
+          {canUseDirectly ? (
+            <button
+              type="button"
+              onClick={onUse}
+              disabled={using}
+              className="mt-3 w-full rounded-xl bg-primary/90 hover:bg-primary disabled:bg-muted disabled:text-muted-foreground disabled:cursor-wait text-primary-foreground px-3 py-2 text-xs font-black"
+            >
+              {using ? 'Using…' : 'Use'}
+            </button>
+          ) : (
+            <p className="mt-3 text-[10px] uppercase tracking-widest opacity-60">
+              Used inside game systems
             </p>
           )}
         </div>
