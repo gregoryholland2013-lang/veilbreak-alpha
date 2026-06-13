@@ -22,92 +22,102 @@ export default function RaidEvent() {
     setLoading(true);
     setMessage("");
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-    if (userError || !user) {
-      setMessage("You must be logged in to enter the raid.");
+      if (userError) throw new Error(userError.message);
+
+      if (!user) {
+        setMessage("You must be logged in to enter the raid.");
+        setEvent(null);
+        return;
+      }
+
+      setUser(user);
+
+      const { data: activeEvent, error: eventError } = await supabase
+        .from("event_seasons")
+        .select("*")
+        .eq("event_type", "raid")
+        .eq("status", "active")
+        .lte("starts_at", new Date().toISOString())
+        .gt("ends_at", new Date().toISOString())
+        .order("starts_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (eventError) throw new Error(eventError.message);
+
+      if (!activeEvent) {
+        setEvent(null);
+        setMessage("No active raid event is live right now.");
+        return;
+      }
+
+      setEvent(activeEvent);
+
+      const { data: profileData, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (profileError) throw new Error(profileError.message);
+      setProfile(profileData || null);
+
+      const { data: progressData, error: progressError } = await supabase
+        .from("player_event_progress")
+        .select("*")
+        .eq("event_id", activeEvent.id)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (progressError) throw new Error(progressError.message);
+      setProgress(progressData || null);
+
+      const { data: rankingData, error: rankingError } = await supabase
+        .from("player_event_progress")
+        .select("*")
+        .eq("event_id", activeEvent.id)
+        .gt("event_rank_score", 0)
+        .order("event_rank_score", { ascending: false })
+        .order("updated_at", { ascending: true })
+        .limit(50);
+
+      if (rankingError) throw new Error(rankingError.message);
+      setRankings(rankingData || []);
+
+      const { data: rewardData, error: rewardError } = await supabase
+        .from("event_rank_rewards")
+        .select("*")
+        .eq("event_id", activeEvent.id)
+        .order("min_rank", { ascending: true });
+
+      if (rewardError) throw new Error(rewardError.message);
+      setRewards(rewardData || []);
+
+      const { data: allProgress, error: totalError } = await supabase
+        .from("player_event_progress")
+        .select("total_damage_dealt")
+        .eq("event_id", activeEvent.id);
+
+      if (totalError) throw new Error(totalError.message);
+
+      const total = (allProgress || []).reduce(
+        (sum, row) => sum + Number(row.total_damage_dealt || 0),
+        0
+      );
+
+      setGlobalDamage(total);
+    } catch (err) {
+      console.error(err);
+      setMessage(err.message || "Could not load raid event.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    setUser(user);
-
-    const { data: activeEvent, error: eventError } = await supabase
-      .from("event_seasons")
-      .select("*")
-      .eq("event_type", "raid")
-      .eq("status", "active")
-      .lte("starts_at", new Date().toISOString())
-      .gt("ends_at", new Date().toISOString())
-      .order("starts_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (eventError) {
-      setMessage(eventError.message);
-      setLoading(false);
-      return;
-    }
-
-    if (!activeEvent) {
-      setMessage("No active raid event is live right now.");
-      setLoading(false);
-      return;
-    }
-
-    setEvent(activeEvent);
-
-    const { data: profileData } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    setProfile(profileData || null);
-
-    const { data: progressData } = await supabase
-      .from("player_event_progress")
-      .select("*")
-      .eq("event_id", activeEvent.id)
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    setProgress(progressData || null);
-
-    const { data: rankingData } = await supabase
-      .from("player_event_progress")
-      .select("*")
-      .eq("event_id", activeEvent.id)
-      .gt("event_rank_score", 0)
-      .order("event_rank_score", { ascending: false })
-      .order("updated_at", { ascending: true })
-      .limit(50);
-
-    setRankings(rankingData || []);
-
-    const { data: rewardData } = await supabase
-      .from("event_rank_rewards")
-      .select("*")
-      .eq("event_id", activeEvent.id)
-      .order("min_rank", { ascending: true });
-
-    setRewards(rewardData || []);
-
-    const { data: allProgress } = await supabase
-      .from("player_event_progress")
-      .select("total_damage_dealt")
-      .eq("event_id", activeEvent.id);
-
-    const total = (allProgress || []).reduce(
-      (sum, row) => sum + Number(row.total_damage_dealt || 0),
-      0
-    );
-
-    setGlobalDamage(total);
-    setLoading(false);
   }
 
   async function getActiveDeckPower() {
@@ -135,7 +145,7 @@ export default function RaidEvent() {
       .map((field) => deck[field])
       .filter(Boolean);
 
-    if (Array.isArray(deck.card_ids)) {
+    if (Array.isArray(deck.card_ids) && deck.card_ids.length) {
       playerCardIds = deck.card_ids.filter(Boolean);
     }
 
@@ -145,18 +155,37 @@ export default function RaidEvent() {
 
     const { data: playerCards, error: cardError } = await supabase
       .from("player_cards")
-      .select("*, cards(*)")
+      .select("*")
       .in("id", playerCardIds);
 
     if (cardError) throw new Error(cardError.message);
     if (!playerCards?.length) throw new Error("Could not load deck cards.");
 
+    const baseCardIds = [
+      ...new Set(playerCards.map((playerCard) => playerCard.card_id).filter(Boolean)),
+    ];
+
+    let baseCardById = new Map();
+
+    if (baseCardIds.length) {
+      const { data: baseCards, error: baseCardError } = await supabase
+        .from("cards")
+        .select("*")
+        .in("id", baseCardIds);
+
+      if (baseCardError) throw new Error(baseCardError.message);
+
+      baseCardById = new Map((baseCards || []).map((card) => [card.id, card]));
+    }
+
     const deckPower = playerCards.reduce((sum, playerCard) => {
-      const card = playerCard.cards || {};
+      const card = baseCardById.get(playerCard.card_id) || {};
       const level = Number(playerCard.level || 1);
 
       const atk = Number(
-        card.attack ??
+        playerCard.attack ??
+          playerCard.atk ??
+          card.attack ??
           card.atk ??
           card.base_attack ??
           card.base_atk ??
@@ -164,7 +193,9 @@ export default function RaidEvent() {
       );
 
       const def = Number(
-        card.defense ??
+        playerCard.defense ??
+          playerCard.def ??
+          card.defense ??
           card.def ??
           card.base_defense ??
           card.base_def ??
@@ -176,6 +207,10 @@ export default function RaidEvent() {
       return sum + Math.floor((atk * 2 + def) * levelMultiplier);
     }, 0);
 
+    if (!deckPower || deckPower <= 0) {
+      throw new Error("Your active deck has no usable attack power.");
+    }
+
     return Math.max(deckPower, 1);
   }
 
@@ -184,6 +219,10 @@ export default function RaidEvent() {
       setAttacking(true);
       setMessage("");
       setLastHit(null);
+
+      if (!event?.id) {
+        throw new Error("No active raid event found.");
+      }
 
       const deckPower = await getActiveDeckPower();
 
@@ -199,9 +238,13 @@ export default function RaidEvent() {
       if (error) throw new Error(error.message);
 
       setLastHit(data);
-      setMessage(`Attack landed for ${Number(data.damage).toLocaleString()} damage.`);
+      setMessage(
+        `Attack landed for ${Number(data.damage || damage).toLocaleString()} damage.`
+      );
+
       await loadRaid();
     } catch (err) {
+      console.error(err);
       setMessage(err.message || "Raid attack failed.");
     } finally {
       setAttacking(false);
@@ -211,6 +254,10 @@ export default function RaidEvent() {
   async function claimReward() {
     try {
       setMessage("");
+
+      if (!event?.id) {
+        throw new Error("No raid event found.");
+      }
 
       const { data, error } = await supabase.rpc("claim_raid_rank_reward", {
         p_event_id: event.id,
@@ -224,6 +271,7 @@ export default function RaidEvent() {
 
       await loadRaid();
     } catch (err) {
+      console.error(err);
       setMessage(err.message || "Could not claim reward.");
     }
   }
@@ -243,7 +291,6 @@ export default function RaidEvent() {
     Math.floor((currentBossDamage / bossHp) * 100)
   );
   const bossesDefeated = Math.floor(globalDamage / bossHp);
-
   const raidEnded = event ? new Date(event.ends_at) <= new Date() : false;
 
   if (loading) {
@@ -264,7 +311,7 @@ export default function RaidEvent() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white p-6">
+    <div className="min-h-screen bg-slate-950 text-white p-6 pb-28">
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="rounded-2xl border border-purple-500/30 bg-slate-900 p-6 shadow-xl">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -301,7 +348,9 @@ export default function RaidEvent() {
               {event.boss_name || "Raid Boss"}
             </h2>
 
-            <p className="text-slate-400 mt-1">Boss Level {event.boss_level || 1}</p>
+            <p className="text-slate-400 mt-1">
+              Boss Level {event.boss_level || 1}
+            </p>
 
             <div className="mt-6">
               <div className="flex justify-between text-sm mb-2">
@@ -329,10 +378,7 @@ export default function RaidEvent() {
                 label="Your Damage"
                 value={Number(progress?.total_damage_dealt || 0).toLocaleString()}
               />
-              <StatCard
-                label="Your Rank"
-                value={myRank ? `#${myRank}` : "Unranked"}
-              />
+              <StatCard label="Your Rank" value={myRank ? `#${myRank}` : "Unranked"} />
               <StatCard
                 label="Boss Kills"
                 value={Number(progress?.total_bosses_killed || 0).toLocaleString()}
@@ -356,7 +402,8 @@ export default function RaidEvent() {
             {lastHit && (
               <div className="mt-4 rounded-xl bg-purple-950/40 border border-purple-500/30 p-4">
                 <p className="text-purple-200 font-semibold">
-                  Last Hit: {Number(lastHit.damage).toLocaleString()} damage
+                  Last Hit:{" "}
+                  {Number(lastHit.damage || 0).toLocaleString()} damage
                 </p>
               </div>
             )}
