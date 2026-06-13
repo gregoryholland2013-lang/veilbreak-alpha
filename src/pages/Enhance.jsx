@@ -22,6 +22,9 @@ const MAX_EVOLVES = 3;
 const STAT_GROWTH_PER_LEVEL = 0.1;
 const AETHER_DUST_PER_FODDER = 10;
 
+const SKILL_MAX_LEVEL = 10;
+const SKILL_SHARD_COST_MULTIPLIER = 3;
+
 const EVOLUTION_RATES = {
   base_plus: 0.4,
   base_plus_plus: 0.45,
@@ -182,6 +185,22 @@ function isCardProtected(playerCard) {
   return Boolean(playerCard?.is_protected || playerCard?.locked);
 }
 
+function hasCardSkill(card) {
+  return Boolean(String(card?.skill_name || '').trim());
+}
+
+function getSkillLevel(playerCard) {
+  return Math.max(1, Number(playerCard?.skill_level || 1));
+}
+
+function getSkillShardCost(skillLevel) {
+  return Math.max(1, Number(skillLevel || 1)) * SKILL_SHARD_COST_MULTIPLIER;
+}
+
+function isSkillMaxed(playerCard) {
+  return getSkillLevel(playerCard) >= SKILL_MAX_LEVEL;
+}
+
 function isValidEvolutionMaterial(
   targetPlayerCard,
   targetCard,
@@ -325,6 +344,98 @@ function buildEnhanceStats({ card, playerCard, newLevel, levelsGained }) {
   };
 }
 
+function SkillUpPanel({ target, skillShards, onUpgrade, onBack, disabled }) {
+  const card = target?.card;
+  const playerCard = target?.playerCard;
+  const skillName = card?.skill_name || 'Unknown Skill';
+  const currentSkillLevel = getSkillLevel(playerCard);
+  const nextSkillLevel = Math.min(currentSkillLevel + 1, SKILL_MAX_LEVEL);
+  const shardCost = getSkillShardCost(currentSkillLevel);
+  const maxed = currentSkillLevel >= SKILL_MAX_LEVEL;
+  const canAfford = Number(skillShards || 0) >= shardCost;
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold text-blue-300 uppercase tracking-widest">
+            Skill Upgrade
+          </p>
+          <h2 className="font-display text-xl font-black mt-1">
+            {card?.name || 'Selected Card'}
+          </h2>
+          <p className="text-sm text-muted-foreground mt-1">{skillName}</p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={disabled}
+          className="rounded-xl border border-border bg-background px-3 py-2 text-xs font-bold text-muted-foreground hover:text-foreground disabled:opacity-60"
+        >
+          Back
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-xl border border-blue-400/30 bg-blue-400/10 p-3">
+          <p className="text-[10px] uppercase tracking-widest text-blue-300">
+            Current Skill
+          </p>
+          <p className="text-2xl font-black mt-1">Lv.{currentSkillLevel}</p>
+        </div>
+
+        <div className="rounded-xl border border-primary/30 bg-primary/10 p-3">
+          <p className="text-[10px] uppercase tracking-widest text-primary">
+            After Upgrade
+          </p>
+          <p className="text-2xl font-black mt-1">Lv.{nextSkillLevel}</p>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-yellow-400/30 bg-yellow-400/10 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs font-black text-yellow-300">Skill Shard Cost</p>
+          <p className="text-lg font-black text-yellow-200">
+            {maxed ? 'MAX' : shardCost}
+          </p>
+        </div>
+
+        <p className="text-[11px] text-muted-foreground mt-1">
+          You own {Number(skillShards || 0).toLocaleString()} Skill Shards.
+          Cost is current skill level × {SKILL_SHARD_COST_MULTIPLIER}.
+        </p>
+      </div>
+
+      {maxed && (
+        <div className="rounded-xl border border-green-400/30 bg-green-400/10 p-3 text-sm text-green-200">
+          This skill is already at the maximum level.
+        </div>
+      )}
+
+      {!maxed && !canAfford && (
+        <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          Not enough Skill Shards. You need {shardCost}, but only have{' '}
+          {Number(skillShards || 0).toLocaleString()}.
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={onUpgrade}
+        disabled={disabled || maxed || !canAfford}
+        className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed text-white px-4 py-4 font-black"
+      >
+        {disabled
+          ? 'Upgrading...'
+          : maxed
+            ? 'Skill Maxed'
+            : `Upgrade Skill - ${shardCost} Skill Shards`}
+      </button>
+    </div>
+  );
+}
+
 export default function Enhance() {
   const { data: cards = [] } = useCards();
   const { data: playerCards = [] } = usePlayerCards();
@@ -337,12 +448,13 @@ export default function Enhance() {
   const [tab, setTab] = useState('enhance');
   const [processing, setProcessing] = useState(false);
   const [aetherDust, setAetherDust] = useState(0);
+  const [skillShards, setSkillShards] = useState(0);
 
   useEffect(() => {
-    loadAetherDust();
+    loadItemBalances();
   }, []);
 
-  async function loadAetherDust() {
+  async function loadItemBalances() {
     try {
       const {
         data: { user },
@@ -350,21 +462,31 @@ export default function Enhance() {
       } = await supabase.auth.getUser();
 
       if (userError) throw userError;
-      if (!user) return;
+
+      if (!user) {
+        setAetherDust(0);
+        setSkillShards(0);
+        return;
+      }
 
       const { data, error } = await supabase
         .from('player_items')
-        .select('quantity')
+        .select('item_key, quantity')
         .eq('user_id', user.id)
-        .eq('item_key', 'aether_dust')
-        .maybeSingle();
+        .in('item_key', ['aether_dust', 'skill_shard']);
 
       if (error) throw error;
 
-      setAetherDust(Number(data?.quantity || 0));
+      const byKey = new Map(
+        (data || []).map((item) => [item.item_key, Number(item.quantity || 0)])
+      );
+
+      setAetherDust(byKey.get('aether_dust') || 0);
+      setSkillShards(byKey.get('skill_shard') || 0);
     } catch (error) {
       console.error(error);
       setAetherDust(0);
+      setSkillShards(0);
     }
   }
 
@@ -498,9 +620,7 @@ export default function Enhance() {
         msg = `${card.name} reached Lv.${newLevel}!`;
       }
 
-      toast.success(
-        `✨ ${msg} Spent ${dustCost} Aether Dust.`
-      );
+      toast.success(`✨ ${msg} Spent ${dustCost} Aether Dust.`);
 
       resetFlow();
     } catch (error) {
@@ -734,6 +854,68 @@ export default function Enhance() {
     }
   };
 
+  const handleSkillUpgrade = async () => {
+    if (!selectedTarget) return;
+
+    const { card, playerCard } = selectedTarget;
+
+    if (!hasCardSkill(card)) {
+      toast.error('This card does not have a skill to upgrade.');
+      return;
+    }
+
+    const currentSkillLevel = getSkillLevel(playerCard);
+
+    if (currentSkillLevel >= SKILL_MAX_LEVEL) {
+      toast.error(`${card.name}'s skill is already Lv.${SKILL_MAX_LEVEL}.`);
+      return;
+    }
+
+    const shardCost = getSkillShardCost(currentSkillLevel);
+
+    if (skillShards < shardCost) {
+      toast.error(
+        `Not enough Skill Shards. Need ${shardCost}, you have ${skillShards}.`
+      );
+      return;
+    }
+
+    setProcessing(true);
+
+    try {
+      const { data, error } = await supabase.rpc(
+        'upgrade_card_skill_with_shards',
+        {
+          p_player_card_id: playerCard.id,
+        }
+      );
+
+      if (error) {
+        throw error;
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['playerCards'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['playerItems'] });
+
+      setSkillShards(Number(data?.skill_shards_remaining || 0));
+
+      toast.success(
+        `🔷 ${card.name}'s ${data?.skill_name || card.skill_name} upgraded to Lv.${
+          data?.new_skill_level || currentSkillLevel + 1
+        }! Spent ${data?.skill_shards_spent || shardCost} Skill Shards.`
+      );
+
+      await loadItemBalances();
+      resetFlow();
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Could not upgrade skill');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   const handleSelectTarget = (item, mode) => {
     if (processing) return;
 
@@ -749,6 +931,22 @@ export default function Enhance() {
 
     if (mode === 'evolve' && isFinalForm(item.playerCard, item.card)) {
       toast.error(`${item.card.name} is already Final Form`);
+      return;
+    }
+
+    if (mode === 'skill') {
+      if (!hasCardSkill(item.card)) {
+        toast.error('This card does not have a skill to upgrade.');
+        return;
+      }
+
+      if (isSkillMaxed(item.playerCard)) {
+        toast.error(`${item.card.name}'s skill is already Lv.${SKILL_MAX_LEVEL}.`);
+        return;
+      }
+
+      setSelectedTarget(item);
+      setStep('skill');
       return;
     }
 
@@ -778,6 +976,22 @@ export default function Enhance() {
     return enhancedCardsForPicker.filter((item) => {
       return !isCardProtected(item.playerCard);
     });
+  }, [enhancedCardsForPicker]);
+
+  const skillCardsForPicker = useMemo(() => {
+    return enhancedCardsForPicker
+      .filter((item) => hasCardSkill(item.card))
+      .map((item) => {
+        const skillLevel = getSkillLevel(item.playerCard);
+        const skillMaxed = skillLevel >= SKILL_MAX_LEVEL;
+
+        return {
+          ...item,
+          skillLevel,
+          skillMaxed,
+          skillShardCost: getSkillShardCost(skillLevel),
+        };
+      });
   }, [enhancedCardsForPicker]);
 
   return (
@@ -848,6 +1062,24 @@ export default function Enhance() {
           </p>
         </div>
 
+        <div className="rounded-xl border border-blue-400/30 bg-blue-400/10 p-3 space-y-1">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-black text-blue-300 flex items-center gap-2">
+              <Sparkles className="w-4 h-4" />
+              Skill Shards
+            </p>
+
+            <p className="text-sm font-black text-blue-200">
+              {Number(skillShards || 0).toLocaleString()}
+            </p>
+          </div>
+
+          <p className="text-[11px] text-muted-foreground">
+            Skill upgrades cost current skill level × {SKILL_SHARD_COST_MULTIPLIER} Skill Shards.
+            Skill upgrades are guaranteed during Beta.
+          </p>
+        </div>
+
         <div className="rounded-xl border border-border bg-card p-3 space-y-1">
           <p className="text-xs font-bold text-primary">Enhancement Caps</p>
           <p className="text-[11px] text-muted-foreground">
@@ -884,6 +1116,9 @@ export default function Enhance() {
                   <TabsTrigger value="evolve" className="flex-1">
                     🌟 Evolve
                   </TabsTrigger>
+                  <TabsTrigger value="skill" className="flex-1">
+                    🔷 Skill
+                  </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="enhance">
@@ -903,6 +1138,16 @@ export default function Enhance() {
                     title="Choose a Card to Evolve"
                     subtitle="Select the target card first. It will evolve one stage forward."
                     defaultSort="evolution_asc"
+                  />
+                </TabsContent>
+
+                <TabsContent value="skill">
+                  <EnhanceCardPicker
+                    enrichedCards={skillCardsForPicker}
+                    onSelect={(item) => handleSelectTarget(item, 'skill')}
+                    title="Choose a Skill to Upgrade"
+                    subtitle="Only cards with skills can use Skill Shards. Skill upgrades are guaranteed during Beta."
+                    defaultSort="total_desc"
                   />
                 </TabsContent>
               </Tabs>
@@ -957,6 +1202,23 @@ export default function Enhance() {
                 }}
                 enrichedCards={consumableCardsForPicker}
                 onEvolve={handleEvolve}
+                onBack={resetFlow}
+                disabled={processing}
+              />
+            </motion.div>
+          )}
+
+          {step === 'skill' && selectedTarget && (
+            <motion.div
+              key="skill"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+            >
+              <SkillUpPanel
+                target={selectedTarget}
+                skillShards={skillShards}
+                onUpgrade={handleSkillUpgrade}
                 onBack={resetFlow}
                 disabled={processing}
               />
