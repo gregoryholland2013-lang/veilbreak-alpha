@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Sparkles } from 'lucide-react';
 import {
   useCards,
   usePlayerCards,
@@ -20,6 +20,7 @@ const FINAL_FORM_MAX_LEVEL = 20;
 const MAX_EVOLVES = 3;
 
 const STAT_GROWTH_PER_LEVEL = 0.1;
+const AETHER_DUST_PER_FODDER = 10;
 
 const EVOLUTION_RATES = {
   base_plus: 0.4,
@@ -29,10 +30,6 @@ const EVOLUTION_RATES = {
 
 function cardCapacity(level) {
   return 50 + (level - 1) * 10;
-}
-
-function isCardProtected(playerCard) {
-  return Boolean(playerCard?.is_protected || playerCard?.locked);
 }
 
 function xpToNextLevel(level) {
@@ -179,6 +176,10 @@ function getCardMaxLevel(playerCard, card) {
 
 function isCardMaxed(playerCard, card) {
   return Number(playerCard?.level || 1) >= getCardMaxLevel(playerCard, card);
+}
+
+function isCardProtected(playerCard) {
+  return Boolean(playerCard?.is_protected || playerCard?.locked);
 }
 
 function isValidEvolutionMaterial(
@@ -335,6 +336,37 @@ export default function Enhance() {
   const [selectedTarget, setSelectedTarget] = useState(null);
   const [tab, setTab] = useState('enhance');
   const [processing, setProcessing] = useState(false);
+  const [aetherDust, setAetherDust] = useState(0);
+
+  useEffect(() => {
+    loadAetherDust();
+  }, []);
+
+  async function loadAetherDust() {
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) throw userError;
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('player_items')
+        .select('quantity')
+        .eq('user_id', user.id)
+        .eq('item_key', 'aether_dust')
+        .maybeSingle();
+
+      if (error) throw error;
+
+      setAetherDust(Number(data?.quantity || 0));
+    } catch (error) {
+      console.error(error);
+      setAetherDust(0);
+    }
+  }
 
   const enrichedCards = useMemo(() => {
     return playerCards
@@ -376,19 +408,29 @@ export default function Enhance() {
     }
 
     const protectedFodder = enrichedCards.filter((item) => {
-      return fodderIds.includes(item.playerCard.id) && isCardProtected(item.playerCard);
+      return (
+        fodderIds.includes(item.playerCard.id) &&
+        isCardProtected(item.playerCard)
+      );
     });
-    
+
     if (protectedFodder.length > 0) {
       toast.error('Protected cards cannot be used as enhancement material.');
+      return;
+    }
+
+    const dustCost = fodderIds.length * AETHER_DUST_PER_FODDER;
+
+    if (aetherDust < dustCost) {
+      toast.error(
+        `Not enough Aether Dust. Need ${dustCost}, you have ${aetherDust}.`
+      );
       return;
     }
 
     setProcessing(true);
 
     try {
-      const now = new Date().toISOString();
-
       let newXp = (playerCard.experience || 0) + totalXpGain;
       let newLevel = currentLevel;
 
@@ -411,46 +453,42 @@ export default function Enhance() {
         levelsGained,
       });
 
-      const { error: updateError } = await supabase
-        .from('player_cards')
-        .update({
-          level: newLevel,
-          experience: newXp,
+      const stageBaseAttack =
+        playerCard.stage_base_attack ?? card.base_attack ?? enhancedStats.attack;
+      const stageBaseDefense =
+        playerCard.stage_base_defense ??
+        card.base_defense ??
+        enhancedStats.defense;
+      const stageBaseHp =
+        playerCard.stage_base_hp ?? card.base_hp ?? enhancedStats.hp;
 
-          attack: enhancedStats.attack,
-          defense: enhancedStats.defense,
-          hp: enhancedStats.hp,
-          max_hp: enhancedStats.max_hp,
+      const { data, error } = await supabase.rpc(
+        'enhance_player_card_with_dust',
+        {
+          p_target_player_card_id: playerCard.id,
+          p_fodder_player_card_ids: fodderIds,
+          p_dust_cost: dustCost,
+          p_new_level: newLevel,
+          p_new_experience: newXp,
+          p_attack: enhancedStats.attack,
+          p_defense: enhancedStats.defense,
+          p_hp: enhancedStats.hp,
+          p_max_hp: enhancedStats.max_hp,
+          p_stage_base_attack: stageBaseAttack,
+          p_stage_base_defense: stageBaseDefense,
+          p_stage_base_hp: stageBaseHp,
+        }
+      );
 
-          stage_base_attack:
-            playerCard.stage_base_attack ??
-            card.base_attack ??
-            enhancedStats.attack,
-          stage_base_defense:
-            playerCard.stage_base_defense ??
-            card.base_defense ??
-            enhancedStats.defense,
-          stage_base_hp:
-            playerCard.stage_base_hp ?? card.base_hp ?? enhancedStats.hp,
-
-          updated_at: now,
-        })
-        .eq('id', playerCard.id);
-
-      if (updateError) {
-        throw updateError;
-      }
-
-      const { error: deleteError } = await supabase
-        .from('player_cards')
-        .delete()
-        .in('id', fodderIds);
-
-      if (deleteError) {
-        throw deleteError;
+      if (error) {
+        throw error;
       }
 
       queryClient.invalidateQueries({ queryKey: ['playerCards'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['playerItems'] });
+
+      setAetherDust(Number(data?.aether_dust_remaining || 0));
 
       let msg = `${card.name} gained ${totalXpGain} XP!`;
 
@@ -460,7 +498,10 @@ export default function Enhance() {
         msg = `${card.name} reached Lv.${newLevel}!`;
       }
 
-      toast.success(`✨ ${msg}`);
+      toast.success(
+        `✨ ${msg} Spent ${dustCost} Aether Dust.`
+      );
+
       resetFlow();
     } catch (error) {
       console.error(error);
@@ -789,6 +830,24 @@ export default function Enhance() {
           </div>
         )}
 
+        <div className="rounded-xl border border-yellow-400/30 bg-yellow-400/10 p-3 space-y-1">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-black text-yellow-300 flex items-center gap-2">
+              <Sparkles className="w-4 h-4" />
+              Aether Dust
+            </p>
+
+            <p className="text-sm font-black text-yellow-200">
+              {Number(aetherDust || 0).toLocaleString()}
+            </p>
+          </div>
+
+          <p className="text-[11px] text-muted-foreground">
+            Enhancement costs {AETHER_DUST_PER_FODDER} Aether Dust per consumed
+            fodder card. Protected cards cannot be consumed.
+          </p>
+        </div>
+
         <div className="rounded-xl border border-border bg-card p-3 space-y-1">
           <p className="text-xs font-bold text-primary">Enhancement Caps</p>
           <p className="text-[11px] text-muted-foreground">
@@ -829,7 +888,7 @@ export default function Enhance() {
 
                 <TabsContent value="enhance">
                   <EnhanceCardPicker
-                    enrichedCards={consumableCardsForPicker}
+                    enrichedCards={enhancedCardsForPicker}
                     onSelect={(item) => handleSelectTarget(item, 'enhance')}
                     title="Choose a Card to Enhance"
                     subtitle="Sort, search, and filter your cards before choosing a target."
@@ -839,7 +898,7 @@ export default function Enhance() {
 
                 <TabsContent value="evolve">
                   <EnhanceCardPicker
-                    enrichedCards={consumableCardsForPicker}
+                    enrichedCards={enhancedCardsForPicker}
                     onSelect={(item) => handleSelectTarget(item, 'evolve')}
                     title="Choose a Card to Evolve"
                     subtitle="Select the target card first. It will evolve one stage forward."
