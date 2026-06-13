@@ -10,6 +10,7 @@ import {
 import GameCard from '@/components/game/GameCard';
 import CardDetailModal from '@/components/game/CardDetailModal';
 import PageHeader from '@/components/game/PageHeader';
+import CardProtectionButton from "@/components/cards/CardProtectionButton";
 import {
   Select,
   SelectContent,

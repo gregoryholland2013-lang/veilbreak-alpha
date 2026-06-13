@@ -31,6 +31,10 @@ function cardCapacity(level) {
   return 50 + (level - 1) * 10;
 }
 
+function isCardProtected(playerCard) {
+  return Boolean(playerCard?.is_protected || playerCard?.locked);
+}
+
 function xpToNextLevel(level) {
   return level * 50;
 }
@@ -191,7 +195,7 @@ function isValidEvolutionMaterial(
     return false;
   }
 
-  if (consumedPlayerCard.locked === true) {
+  if (isCardProtected(consumedPlayerCard)) {
     return false;
   }
 
@@ -371,6 +375,15 @@ export default function Enhance() {
       return;
     }
 
+    const protectedFodder = enrichedCards.filter((item) => {
+      return fodderIds.includes(item.playerCard.id) && isCardProtected(item.playerCard);
+    });
+    
+    if (protectedFodder.length > 0) {
+      toast.error('Protected cards cannot be used as enhancement material.');
+      return;
+    }
+
     setProcessing(true);
 
     try {
@@ -488,6 +501,11 @@ export default function Enhance() {
 
     const consumedPlayerCard = consumedItem.playerCard;
     const consumedCard = consumedItem.card;
+
+    if (isCardProtected(consumedPlayerCard)) {
+      toast.error('Protected cards cannot be consumed for evolution.');
+      return;
+    }
 
     const validMaterial = isValidEvolutionMaterial(
       playerCard,
@@ -715,6 +733,12 @@ export default function Enhance() {
     });
   }, [enrichedCards]);
 
+  const consumableCardsForPicker = useMemo(() => {
+    return enhancedCardsForPicker.filter((item) => {
+      return !isCardProtected(item.playerCard);
+    });
+  }, [enhancedCardsForPicker]);
+
   return (
     <div className="max-w-lg mx-auto">
       <PageHeader title="Enhance" />
@@ -805,7 +829,7 @@ export default function Enhance() {
 
                 <TabsContent value="enhance">
                   <EnhanceCardPicker
-                    enrichedCards={enhancedCardsForPicker}
+                    enrichedCards={consumableCardsForPicker}
                     onSelect={(item) => handleSelectTarget(item, 'enhance')}
                     title="Choose a Card to Enhance"
                     subtitle="Sort, search, and filter your cards before choosing a target."
@@ -815,7 +839,7 @@ export default function Enhance() {
 
                 <TabsContent value="evolve">
                   <EnhanceCardPicker
-                    enrichedCards={enhancedCardsForPicker}
+                    enrichedCards={consumableCardsForPicker}
                     onSelect={(item) => handleSelectTarget(item, 'evolve')}
                     title="Choose a Card to Evolve"
                     subtitle="Select the target card first. It will evolve one stage forward."
@@ -845,7 +869,7 @@ export default function Enhance() {
                     selectedTarget.card
                   ),
                 }}
-                enrichedCards={enhancedCardsForPicker}
+                enrichedCards={consumableCardsForPicker}
                 onConfirm={handleEnhanceConfirm}
                 onBack={resetFlow}
                 disabled={processing}
@@ -872,7 +896,7 @@ export default function Enhance() {
                     selectedTarget.card
                   ),
                 }}
-                enrichedCards={enhancedCardsForPicker}
+                enrichedCards={consumableCardsForPicker}
                 onEvolve={handleEvolve}
                 onBack={resetFlow}
                 disabled={processing}

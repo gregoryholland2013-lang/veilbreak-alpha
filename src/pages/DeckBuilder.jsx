@@ -18,6 +18,7 @@ import PageHeader from '@/components/game/PageHeader';
 import { supabase } from '@/lib/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { Lock } from 'lucide-react';
 
 const MAX_DECK_SIZE = 5;
 
@@ -492,6 +493,11 @@ export default function DeckBuilder() {
                     showStats
                     onClick={() => toggleCard(playerCard.id)}
                   />
+                  {playerCard.is_protected && (
+                    <div className="absolute top-1 right-1 z-20 w-6 h-6 rounded-lg border border-yellow-400/50 bg-black/80 flex items-center justify-center pointer-events-none">
+                      <Lock className="w-3.5 h-3.5 text-yellow-300" />
+                    </div>
+                  )}
 
                   <div className="absolute left-1 right-1 bottom-1 rounded-md bg-black/70 px-1 py-0.5 text-[8px] text-center text-white pointer-events-none">
                     Power {stats.total}
