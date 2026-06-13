@@ -9,6 +9,7 @@ import {
   Skull,
   Sparkles,
   Swords,
+  Ticket,
   Timer,
   Trophy,
   Zap,
@@ -26,6 +27,8 @@ export default function RaidEvent() {
   const [lastAction, setLastAction] = useState(null);
   const [loading, setLoading] = useState(true);
   const [questing, setQuesting] = useState(false);
+  const [ticketQuesting, setTicketQuesting] = useState(false);
+  const [raidTickets, setRaidTickets] = useState(0);
   const [attackingBossId, setAttackingBossId] = useState(null);
   const [message, setMessage] = useState("");
 
@@ -50,6 +53,7 @@ export default function RaidEvent() {
       if (!user) {
         setUser(null);
         setEvent(null);
+        setRaidTickets(0);
         setMessage("You must be logged in to enter the raid.");
         return;
       }
@@ -73,6 +77,7 @@ export default function RaidEvent() {
 
       if (!activeEvent) {
         setEvent(null);
+        setRaidTickets(0);
         setMessage("No active raid event is live right now.");
         return;
       }
@@ -130,6 +135,16 @@ export default function RaidEvent() {
 
       if (rewardError) throw new Error(rewardError.message);
       setRewards(rewardData || []);
+
+      const { data: ticketData, error: ticketError } = await supabase
+        .from("player_items")
+        .select("quantity")
+        .eq("user_id", user.id)
+        .eq("item_key", "raid_ticket")
+        .maybeSingle();
+
+      if (ticketError) throw new Error(ticketError.message);
+      setRaidTickets(Number(ticketData?.quantity || 0));
     } catch (err) {
       console.error(err);
       setMessage(err.message || "Could not load raid event.");
@@ -270,6 +285,49 @@ export default function RaidEvent() {
     }
   }
 
+  async function continueQuestWithTicket() {
+    try {
+      setTicketQuesting(true);
+      setMessage("");
+      setLastAction(null);
+
+      if (!event?.id) throw new Error("No active raid event found.");
+
+      if (raidTickets <= 0) {
+        throw new Error("You do not have any Raid Tickets.");
+      }
+
+      const { data, error } = await supabase.rpc(
+        "advance_event_quest_with_ticket",
+        {
+          p_event_id: event.id,
+        }
+      );
+
+      if (error) throw new Error(error.message);
+
+      setRaidTickets(Number(data?.raid_tickets_remaining || 0));
+
+      if (data?.spawned_boss_id) {
+        setLastAction(data);
+        setMessage(
+          `${data.spawned_boss_name} appeared! ${Number(
+            data.spawned_boss_hp || 0
+          ).toLocaleString()} HP blocks your path. Raid Ticket spent.`
+        );
+      } else {
+        setMessage("Raid Ticket spent. Quest cleared without stamina cost.");
+      }
+
+      await loadRaid({ silent: true });
+    } catch (err) {
+      console.error(err);
+      setMessage(err.message || "Could not use Raid Ticket.");
+    } finally {
+      setTicketQuesting(false);
+    }
+  }
+
   async function attackBoss(boss) {
     try {
       setAttackingBossId(boss.id);
@@ -351,6 +409,8 @@ export default function RaidEvent() {
   const queueCap = Number(event?.raid_queue_cap || 3);
   const queueFull = bosses.length >= queueCap;
   const finalBossActive = bosses.some((boss) => boss.boss_type === "final");
+  const questActionBusy = questing || ticketQuesting;
+  const canUseRaidTicket = raidTickets > 0;
 
   const questPercent = Math.min(
     100,
@@ -504,7 +564,7 @@ export default function RaidEvent() {
                   />
                 </div>
 
-                <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-3">
                   <ResourceCard
                     label="Stamina"
                     value={profile?.stamina ?? "?"}
@@ -516,6 +576,11 @@ export default function RaidEvent() {
                     value={profile?.attack_energy ?? "?"}
                     max={profile?.max_attack_energy ?? "?"}
                     accent="red"
+                  />
+                  <StatCard
+                    icon={Ticket}
+                    label="Raid Tickets"
+                    value={Number(raidTickets || 0).toLocaleString()}
                   />
                   <StatCard
                     icon={Flame}
@@ -551,24 +616,53 @@ export default function RaidEvent() {
                   </div>
                 )}
 
-                <button
-                  onClick={continueQuest}
-                  disabled={questing || raidEnded || queueFull || finalBossActive}
-                  className="group mt-7 w-full rounded-2xl bg-gradient-to-r from-purple-600 via-fuchsia-600 to-purple-500 hover:from-purple-500 hover:via-fuchsia-500 hover:to-yellow-500 disabled:from-slate-700 disabled:via-slate-700 disabled:to-slate-700 disabled:cursor-not-allowed px-6 py-5 font-black text-lg shadow-xl shadow-purple-950/40 transition-all"
-                >
-                  <span className="flex items-center justify-center gap-2">
-                    {questing
-                      ? "Pushing Through The Rift..."
-                      : continueDisabledReason ||
-                        `Continue Quest - ${
-                          event.quest_stamina_cost || 2
-                        } Stamina`}
+                <div className="mt-7 grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <button
+                    onClick={continueQuest}
+                    disabled={
+                      questActionBusy ||
+                      raidEnded ||
+                      queueFull ||
+                      finalBossActive
+                    }
+                    className="group w-full rounded-2xl bg-gradient-to-r from-purple-600 via-fuchsia-600 to-purple-500 hover:from-purple-500 hover:via-fuchsia-500 hover:to-yellow-500 disabled:from-slate-700 disabled:via-slate-700 disabled:to-slate-700 disabled:cursor-not-allowed px-6 py-5 font-black text-lg shadow-xl shadow-purple-950/40 transition-all"
+                  >
+                    <span className="flex items-center justify-center gap-2">
+                      {questing
+                        ? "Pushing Through The Rift..."
+                        : continueDisabledReason ||
+                          `Continue Quest - ${
+                            event.quest_stamina_cost || 2
+                          } Stamina`}
 
-                    {!questing && !continueDisabledReason && (
-                      <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                    )}
-                  </span>
-                </button>
+                      {!questActionBusy && !continueDisabledReason && (
+                        <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                      )}
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={continueQuestWithTicket}
+                    disabled={
+                      questActionBusy ||
+                      raidEnded ||
+                      queueFull ||
+                      finalBossActive ||
+                      !canUseRaidTicket
+                    }
+                    className="group w-full rounded-2xl bg-gradient-to-r from-yellow-500 via-amber-500 to-orange-500 hover:from-yellow-400 hover:via-amber-400 hover:to-orange-400 disabled:from-slate-700 disabled:via-slate-700 disabled:to-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed px-6 py-5 font-black text-lg text-black shadow-xl shadow-yellow-950/30 transition-all"
+                  >
+                    <span className="flex items-center justify-center gap-2">
+                      <Ticket className="w-5 h-5" />
+                      {ticketQuesting
+                        ? "Using Raid Ticket..."
+                        : continueDisabledReason ||
+                          (canUseRaidTicket
+                            ? `Use Raid Ticket - ${raidTickets} Owned`
+                            : "No Raid Tickets")}
+                    </span>
+                  </button>
+                </div>
               </div>
             </div>
           </section>
@@ -953,7 +1047,9 @@ function RankingTable({ rankings, user }) {
                   #{index + 1}
                 </td>
                 <td className="py-4 px-5">
-                  <span className="font-bold">{row.created_by || row.user_id}</span>
+                  <span className="font-bold">
+                    {row.created_by || row.user_id}
+                  </span>
                   {row.user_id === user?.id && (
                     <span className="ml-2 text-purple-300">(You)</span>
                   )}
