@@ -21,6 +21,7 @@ import GuildPage from './pages/Guild';
 import EventDungeon from './pages/EventDungeon';
 import HolyWars from './pages/HolyWars';
 import RaidEvent from "./pages/RaidEvent";
+import Inventory from '@/pages/Inventory';
 
 const AuthenticatedApp = () => {
   return (
@@ -39,6 +40,7 @@ const AuthenticatedApp = () => {
         <Route path="/event" element={<EventDungeon />} />
         <Route path="/holy-wars" element={<HolyWars />} />
         <Route path="/raid-event" element={<RaidEvent />} />
+        <Route path="/inventory" element={<Inventory />} />
       </Route>
 
       <Route path="*" element={<PageNotFound />} />

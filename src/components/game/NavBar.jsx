@@ -16,6 +16,7 @@ import {
   Flame,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Package } from 'lucide-react';
 
 const primaryNav = [
   { path: '/', icon: Home, label: 'Hub' },
@@ -52,6 +53,13 @@ const allMenuItems = [
     label: 'Summon',
     desc: 'Draw new cards',
     color: 'text-purple-300',
+  },
+  {
+    path: '/inventory',
+    icon: Package,
+    label: 'Inventory',
+    desc: 'Items & materials',
+    color: 'text-yellow-300',
   },
   {
     path: '/enhance',
