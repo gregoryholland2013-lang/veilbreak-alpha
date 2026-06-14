@@ -39,6 +39,10 @@ const DIRECT_USE_ITEMS = new Set([
   'defense_refill',
 ]);
 
+const DISABLED_ITEMS = new Set([
+  'aether_dust',
+]);
+
 export default function Inventory() {
   const [items, setItems] = useState([]);
   const [profile, setProfile] = useState(null);
@@ -102,6 +106,17 @@ export default function Inventory() {
       if (itemError) throw itemError;
 
       const normalized = (itemRows || [])
+        .filter((row) => {
+          const definition = row.item_definitions || {};
+          const itemKey = String(row.item_key || definition.item_key || '').toLowerCase();
+          const itemName = String(definition.name || '').toLowerCase();
+
+          if (DISABLED_ITEMS.has(itemKey)) return false;
+          if (itemName === 'aether dust') return false;
+          if (definition.is_active === false) return false;
+
+          return true;
+        })
         .map((row) => {
           const definition = row.item_definitions || {};
 
@@ -115,6 +130,7 @@ export default function Inventory() {
             rarity: definition.rarity || 'common',
             icon: definition.icon || '✨',
             sort_order: Number(definition.sort_order || 100),
+            is_active: definition.is_active !== false,
           };
         })
         .sort((a, b) => {
@@ -135,6 +151,13 @@ export default function Inventory() {
   }
 
   async function useItem(item) {
+    const itemKey = String(item?.item_key || '').toLowerCase();
+
+    if (DISABLED_ITEMS.has(itemKey) || item?.is_active === false) {
+      toast.error(`${item?.name || 'This item'} is currently disabled.`);
+      return;
+    }
+
     if (!DIRECT_USE_ITEMS.has(item.item_key)) {
       toast.error(`${item.name} is used inside another game system.`);
       return;
