@@ -20,7 +20,6 @@ const FINAL_FORM_MAX_LEVEL = 20;
 const MAX_EVOLVES = 3;
 
 const STAT_GROWTH_PER_LEVEL = 0.1;
-const AETHER_DUST_PER_FODDER = 10;
 
 const SKILL_MAX_LEVEL = 10;
 const SKILL_SHARD_COST_MULTIPLIER = 3;
@@ -447,7 +446,6 @@ export default function Enhance() {
   const [selectedTarget, setSelectedTarget] = useState(null);
   const [tab, setTab] = useState('enhance');
   const [processing, setProcessing] = useState(false);
-  const [aetherDust, setAetherDust] = useState(0);
   const [skillShards, setSkillShards] = useState(0);
 
   useEffect(() => {
@@ -464,7 +462,6 @@ export default function Enhance() {
       if (userError) throw userError;
 
       if (!user) {
-        setAetherDust(0);
         setSkillShards(0);
         return;
       }
@@ -473,19 +470,14 @@ export default function Enhance() {
         .from('player_items')
         .select('item_key, quantity')
         .eq('user_id', user.id)
-        .in('item_key', ['aether_dust', 'skill_shard']);
+        .eq('item_key', 'skill_shard');
 
       if (error) throw error;
 
-      const byKey = new Map(
-        (data || []).map((item) => [item.item_key, Number(item.quantity || 0)])
-      );
-
-      setAetherDust(byKey.get('aether_dust') || 0);
-      setSkillShards(byKey.get('skill_shard') || 0);
+      const skillShardRow = data?.[0];
+      setSkillShards(Number(skillShardRow?.quantity || 0));
     } catch (error) {
       console.error(error);
-      setAetherDust(0);
       setSkillShards(0);
     }
   }
@@ -541,18 +533,11 @@ export default function Enhance() {
       return;
     }
 
-    const dustCost = fodderIds.length * AETHER_DUST_PER_FODDER;
-
-    if (aetherDust < dustCost) {
-      toast.error(
-        `Not enough Aether Dust. Need ${dustCost}, you have ${aetherDust}.`
-      );
-      return;
-    }
-
     setProcessing(true);
 
     try {
+      const now = new Date().toISOString();
+
       let newXp = (playerCard.experience || 0) + totalXpGain;
       let newLevel = currentLevel;
 
@@ -577,40 +562,61 @@ export default function Enhance() {
 
       const stageBaseAttack =
         playerCard.stage_base_attack ?? card.base_attack ?? enhancedStats.attack;
+
       const stageBaseDefense =
         playerCard.stage_base_defense ??
         card.base_defense ??
         enhancedStats.defense;
+
       const stageBaseHp =
         playerCard.stage_base_hp ?? card.base_hp ?? enhancedStats.hp;
 
-      const { data, error } = await supabase.rpc(
-        'enhance_player_card_with_dust',
-        {
-          p_target_player_card_id: playerCard.id,
-          p_fodder_player_card_ids: fodderIds,
-          p_dust_cost: dustCost,
-          p_new_level: newLevel,
-          p_new_experience: newXp,
-          p_attack: enhancedStats.attack,
-          p_defense: enhancedStats.defense,
-          p_hp: enhancedStats.hp,
-          p_max_hp: enhancedStats.max_hp,
-          p_stage_base_attack: stageBaseAttack,
-          p_stage_base_defense: stageBaseDefense,
-          p_stage_base_hp: stageBaseHp,
-        }
-      );
+      const updatePayload = {
+        level: newLevel,
+        experience: newXp,
+        attack: enhancedStats.attack,
+        defense: enhancedStats.defense,
+        hp: enhancedStats.hp,
+        max_hp: enhancedStats.max_hp,
+        stage_base_attack: stageBaseAttack,
+        stage_base_defense: stageBaseDefense,
+        stage_base_hp: stageBaseHp,
+        updated_at: now,
+      };
 
-      if (error) {
-        throw error;
+      const { data: updatedRows, error: updateError } = await supabase
+        .from('player_cards')
+        .update(updatePayload)
+        .eq('id', playerCard.id)
+        .select();
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      if (!updatedRows || updatedRows.length === 0) {
+        throw new Error('No player card was updated. Check RLS or card ownership.');
+      }
+
+      const { data: deletedRows, error: deleteError } = await supabase
+        .from('player_cards')
+        .delete()
+        .in('id', fodderIds)
+        .select('id');
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      if (!deletedRows || deletedRows.length !== fodderIds.length) {
+        throw new Error(
+          'Some fodder cards were not consumed. Check RLS or card ownership.'
+        );
       }
 
       queryClient.invalidateQueries({ queryKey: ['playerCards'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       queryClient.invalidateQueries({ queryKey: ['playerItems'] });
-
-      setAetherDust(Number(data?.aether_dust_remaining || 0));
 
       let msg = `${card.name} gained ${totalXpGain} XP!`;
 
@@ -620,7 +626,7 @@ export default function Enhance() {
         msg = `${card.name} reached Lv.${newLevel}!`;
       }
 
-      toast.success(`✨ ${msg} Spent ${dustCost} Aether Dust.`);
+      toast.success(`✨ ${msg}`);
 
       resetFlow();
     } catch (error) {
@@ -901,7 +907,9 @@ export default function Enhance() {
       setSkillShards(Number(data?.skill_shards_remaining || 0));
 
       toast.success(
-        `🔷 ${card.name}'s ${data?.skill_name || card.skill_name} upgraded to Lv.${
+        `🔷 ${card.name}'s ${
+          data?.skill_name || card.skill_name
+        } upgraded to Lv.${
           data?.new_skill_level || currentSkillLevel + 1
         }! Spent ${data?.skill_shards_spent || shardCost} Skill Shards.`
       );
@@ -1044,24 +1052,6 @@ export default function Enhance() {
           </div>
         )}
 
-        <div className="rounded-xl border border-yellow-400/30 bg-yellow-400/10 p-3 space-y-1">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-black text-yellow-300 flex items-center gap-2">
-              <Sparkles className="w-4 h-4" />
-              Aether Dust
-            </p>
-
-            <p className="text-sm font-black text-yellow-200">
-              {Number(aetherDust || 0).toLocaleString()}
-            </p>
-          </div>
-
-          <p className="text-[11px] text-muted-foreground">
-            Enhancement costs {AETHER_DUST_PER_FODDER} Aether Dust per consumed
-            fodder card. Protected cards cannot be consumed.
-          </p>
-        </div>
-
         <div className="rounded-xl border border-blue-400/30 bg-blue-400/10 p-3 space-y-1">
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs font-black text-blue-300 flex items-center gap-2">
@@ -1075,8 +1065,9 @@ export default function Enhance() {
           </div>
 
           <p className="text-[11px] text-muted-foreground">
-            Skill upgrades cost current skill level × {SKILL_SHARD_COST_MULTIPLIER} Skill Shards.
-            Skill upgrades are guaranteed during Beta.
+            Skill upgrades cost current skill level ×{' '}
+            {SKILL_SHARD_COST_MULTIPLIER} Skill Shards. Skill upgrades are
+            guaranteed during Beta.
           </p>
         </div>
 

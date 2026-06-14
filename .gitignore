@@ -29,3 +29,10 @@ dist-ssr
 
 .env
 .vite
+
+art_concepts_with_lore/
+card_sheets/
+
+split_cards/
+art_concepts_with_lore/
+card_sheets/
