@@ -18,14 +18,35 @@ const SUMMON_COST_GOLD = 300;
 const SUMMON_COST_GEMS = 5;
 
 const DROP_RATES = [
-  { rarity: 'legendary', rate: 0.03 },
-  { rarity: 'epic', rate: 0.12 },
-  { rarity: 'rare', rate: 0.25 },
-  { rarity: 'common', rate: 0.60 },
+  { rarity: 'vessel', label: 'Vessel', rate: 0.6 },
+  { rarity: 'awakened', label: 'Awakened', rate: 0.25 },
+  { rarity: 'ascendant', label: 'Ascendant', rate: 0.1 },
+  { rarity: 'exalted', label: 'Exalted', rate: 0.04 },
+  { rarity: 'mythic', label: 'Mythic', rate: 0.01 },
 ];
 
+function cleanText(value) {
+  return String(value || '').trim();
+}
+
 function normalizeRarity(rarity) {
-  return String(rarity || 'common').toLowerCase();
+  return cleanText(rarity || 'Vessel').toLowerCase();
+}
+
+function normalizeForm(value) {
+  const form = cleanText(value).toLowerCase();
+
+  if (!form) return 'base';
+  if (form === 'base form') return 'base';
+  if (form === 'base+' || form === 'base plus') return 'base_plus';
+  if (form === 'base++' || form === 'base plus plus') return 'base_plus_plus';
+  if (form === 'final form') return 'final';
+
+  return form;
+}
+
+function isActiveCard(value) {
+  return value === true || value === 'true' || value === 1 || value === '1';
 }
 
 function pickRarity() {
@@ -40,7 +61,31 @@ function pickRarity() {
     }
   }
 
-  return 'common';
+  return 'vessel';
+}
+
+function prepareSummonCard(card) {
+  const safeName =
+    cleanText(card.name) ||
+    cleanText(card.card_line) ||
+    cleanText(card.full_card_name) ||
+    cleanText(card.card_name);
+
+  const safeRarity =
+    cleanText(card.rarity) ||
+    cleanText(card.rarity_tier) ||
+    'Vessel';
+
+  const safeForm = normalizeForm(card.evo_form || card.evolution_stage || 'base');
+
+  return {
+    ...card,
+    name: safeName,
+    rarity: safeRarity,
+    evolution_stage: safeForm,
+    evo_form: safeForm,
+    image_url: cleanText(card.image_url),
+  };
 }
 
 export default function Summon() {
@@ -91,7 +136,7 @@ export default function Summon() {
 
       setSummonTickets(Number(data?.quantity || 0));
     } catch (error) {
-      console.error(error);
+      console.error('Failed to load summon tickets:', error);
       setSummonTickets(0);
     } finally {
       setLoadingTickets(false);
@@ -99,16 +144,16 @@ export default function Summon() {
   }
 
   const activeCards = useMemo(() => {
-    return (cards || []).filter((card) => {
-      return (
-        card.is_active !== false &&
-        card.name &&
-        card.image_url &&
-        card.image_url.trim() !== '' &&
-        card.evolution_stage === 'base' &&
-        (card.evo_form === 'base' || !card.evo_form)
-      );
-    });
+    return (cards || [])
+      .map(prepareSummonCard)
+      .filter((card) => {
+        return (
+          isActiveCard(card.is_active) &&
+          card.name &&
+          card.image_url &&
+          card.evolution_stage === 'base'
+        );
+      });
   }, [cards]);
 
   const randomPick = (excludedIds = new Set()) => {
@@ -118,11 +163,12 @@ export default function Summon() {
 
     const wantedRarity = pickRarity();
 
-    let pool = activeCards.filter(
-      (card) =>
+    let pool = activeCards.filter((card) => {
+      return (
         normalizeRarity(card.rarity) === wantedRarity &&
         !excludedIds.has(card.id)
-    );
+      );
+    });
 
     if (pool.length === 0) {
       pool = activeCards.filter((card) => !excludedIds.has(card.id));
@@ -215,7 +261,7 @@ export default function Summon() {
           card_id: card.id,
           level: 1,
           experience: 0,
-          evolution_stage: card.evo_form || 'base',
+          evolution_stage: 'base',
           skill_level: card.skill_name ? 1 : 0,
           attack: card.base_attack || 100,
           defense: card.base_defense || 100,
@@ -519,26 +565,17 @@ export default function Summon() {
             Drop Rates
           </p>
 
-          <div className="grid grid-cols-4 gap-2 text-center text-xs">
-            <div>
-              <span className="block text-muted-foreground">Common</span>
-              <span className="font-bold">60%</span>
-            </div>
-
-            <div>
-              <span className="block text-blue-400">Rare</span>
-              <span className="font-bold">25%</span>
-            </div>
-
-            <div>
-              <span className="block text-purple-400">Epic</span>
-              <span className="font-bold">12%</span>
-            </div>
-
-            <div>
-              <span className="block text-primary">Legend</span>
-              <span className="font-bold">3%</span>
-            </div>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center text-xs">
+            {DROP_RATES.map((item) => (
+              <div key={item.rarity}>
+                <span className="block text-muted-foreground">
+                  {item.label}
+                </span>
+                <span className="font-bold">
+                  {Math.round(item.rate * 100)}%
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       </div>
