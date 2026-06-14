@@ -8,12 +8,24 @@ import { toast } from 'sonner';
 const HERO_IMAGE =
   'https://media.base44.com/images/public/69e667952dab314dabbd3859/12dd112d1_generated_image.png';
 
+function normalizeUsername(value) {
+  return String(value || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9_]/g, '');
+}
+
+function isValidUsername(value) {
+  return /^[a-z0-9_]{3,20}$/.test(value);
+}
+
 export default function AuthGate({ children }) {
   const [session, setSession] = useState(null);
   const [loadingSession, setLoadingSession] = useState(true);
 
   const [mode, setMode] = useState('login'); // login | signup
   const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
 
   const [saving, setSaving] = useState(false);
@@ -77,14 +89,51 @@ export default function AuthGate({ children }) {
     };
   }, []);
 
+  async function ensureProfile(user, cleanEmail, cleanUsername) {
+    if (!user?.id || !cleanUsername) return;
+
+    const now = new Date().toISOString();
+
+    const { error } = await supabase.from('profiles').upsert(
+      {
+        id: user.id,
+        user_id: user.id,
+        email: cleanEmail,
+        username: cleanUsername,
+        display_name: cleanUsername,
+        updated_at: now,
+      },
+      {
+        onConflict: 'id',
+      }
+    );
+
+    if (error) {
+      console.warn('Profile upsert skipped/failed:', error);
+    }
+  }
+
   const submit = async (e) => {
     e.preventDefault();
 
     const cleanEmail = email.trim().toLowerCase();
+    const cleanUsername = normalizeUsername(username);
 
     if (!cleanEmail || !password) {
       toast.error('Enter your email and password');
       return;
+    }
+
+    if (mode === 'signup') {
+      if (!cleanUsername) {
+        toast.error('Create a username');
+        return;
+      }
+
+      if (!isValidUsername(cleanUsername)) {
+        toast.error('Username must be 3-20 characters using letters, numbers, or underscores only.');
+        return;
+      }
     }
 
     if (password.length < 6) {
@@ -96,18 +145,43 @@ export default function AuthGate({ children }) {
 
     try {
       if (mode === 'signup') {
+        const { data: existingUsername, error: usernameError } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('username', cleanUsername)
+          .maybeSingle();
+
+        if (usernameError) {
+          throw usernameError;
+        }
+
+        if (existingUsername) {
+          toast.error('That username is already taken.');
+          return;
+        }
+
         const { data, error } = await supabase.auth.signUp({
           email: cleanEmail,
           password,
+          options: {
+            data: {
+              username: cleanUsername,
+              display_name: cleanUsername,
+            },
+          },
         });
 
         if (error) {
           throw error;
         }
 
+        if (data?.user) {
+          await ensureProfile(data.user, cleanEmail, cleanUsername);
+        }
+
         if (data?.session) {
           setSession(data.session);
-          toast.success('Account created!');
+          toast.success(`Account created. Welcome, ${cleanUsername}!`);
           return;
         }
 
@@ -135,7 +209,9 @@ export default function AuthGate({ children }) {
     } catch (error) {
       console.error(error);
 
-      if (error.message?.toLowerCase().includes('invalid login credentials')) {
+      if (error.message?.toLowerCase().includes('duplicate key')) {
+        toast.error('That username is already taken.');
+      } else if (error.message?.toLowerCase().includes('invalid login credentials')) {
         toast.error(
           'Invalid email or password. If this is a new account, use Sign Up first.'
         );
@@ -166,7 +242,6 @@ export default function AuthGate({ children }) {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-background">
-      {/* Background */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         <img
           src={HERO_IMAGE}
@@ -178,7 +253,6 @@ export default function AuthGate({ children }) {
         <div className="absolute inset-0 bg-gradient-to-r from-background/80 via-transparent to-background/80" />
       </div>
 
-      {/* Login card */}
       <div className="relative z-10 min-h-screen flex items-center justify-center px-5">
         <div className="w-full max-w-sm rounded-2xl border border-primary/30 bg-background/70 backdrop-blur-md shadow-2xl p-5 space-y-5">
           <div className="text-center space-y-2">
@@ -238,6 +312,28 @@ export default function AuthGate({ children }) {
                 autoComplete="email"
               />
             </div>
+
+            {mode === 'signup' && (
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-muted-foreground">
+                  Username
+                </p>
+
+                <Input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(normalizeUsername(e.target.value))}
+                  placeholder="letters_numbers_only"
+                  className="h-10"
+                  autoComplete="username"
+                  maxLength={20}
+                />
+
+                <p className="text-[10px] text-muted-foreground">
+                  3-20 characters. Letters, numbers, and underscores only.
+                </p>
+              </div>
+            )}
 
             <div className="space-y-1">
               <p className="text-xs font-semibold text-muted-foreground">
