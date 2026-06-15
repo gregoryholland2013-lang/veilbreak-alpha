@@ -16,6 +16,18 @@ import {
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 
+function isRaidEventEnded(raidEvent) {
+  if (!raidEvent) return false;
+
+  const status = String(raidEvent.status || "").toLowerCase();
+
+  if (["ended", "complete", "completed", "closed"].includes(status)) {
+    return true;
+  }
+
+  return new Date(raidEvent.ends_at) <= new Date();
+}
+
 export default function RaidEvent() {
   const [user, setUser] = useState(null);
   const [event, setEvent] = useState(null);
@@ -62,7 +74,7 @@ export default function RaidEvent() {
 
       const now = new Date().toISOString();
 
-      const { data: activeEvent, error: eventError } = await supabase
+      const { data: activeEvent, error: activeEventError } = await supabase
         .from("event_seasons")
         .select("*")
         .eq("event_type", "raid")
@@ -73,16 +85,59 @@ export default function RaidEvent() {
         .limit(1)
         .maybeSingle();
 
-      if (eventError) throw new Error(eventError.message);
+      if (activeEventError) throw new Error(activeEventError.message);
 
-      if (!activeEvent) {
+      let selectedEvent = activeEvent || null;
+
+      // If there is no active raid, load the most recent ended raid.
+      // This allows every player to see final rankings/rewards after the event ends.
+      if (!selectedEvent) {
+        const { data: endedEvent, error: endedEventError } = await supabase
+          .from("event_seasons")
+          .select("*")
+          .eq("event_type", "raid")
+          .eq("status", "ended")
+          .order("ends_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (endedEventError) throw new Error(endedEventError.message);
+
+        selectedEvent = endedEvent || null;
+      }
+
+      // Fallback: support raids that expired naturally but were not manually marked ended.
+      if (!selectedEvent) {
+        const { data: expiredEvent, error: expiredEventError } = await supabase
+          .from("event_seasons")
+          .select("*")
+          .eq("event_type", "raid")
+          .lte("ends_at", now)
+          .order("ends_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (expiredEventError) throw new Error(expiredEventError.message);
+
+        selectedEvent = expiredEvent || null;
+      }
+
+      if (!selectedEvent) {
         setEvent(null);
         setRaidTickets(0);
-        setMessage("No active raid event is live right now.");
+        setMessage("No active or completed raid event was found.");
         return;
       }
 
-      setEvent(activeEvent);
+      const selectedEventEnded = isRaidEventEnded(selectedEvent);
+
+      setEvent(selectedEvent);
+
+      if (!silent && !activeEvent && selectedEventEnded) {
+        setMessage(
+          "This raid has ended. You can review rankings and claim your reward."
+        );
+      }
 
       const { data: profileData, error: profileError } = await supabase
         .from("profiles")
@@ -96,29 +151,33 @@ export default function RaidEvent() {
       const { data: progressData, error: progressError } = await supabase
         .from("player_event_progress")
         .select("*")
-        .eq("event_id", activeEvent.id)
+        .eq("event_id", selectedEvent.id)
         .eq("user_id", user.id)
         .maybeSingle();
 
       if (progressError) throw new Error(progressError.message);
       setProgress(progressData || null);
 
-      const { data: bossData, error: bossError } = await supabase
-        .from("event_raid_bosses")
-        .select("*")
-        .eq("event_id", activeEvent.id)
-        .eq("user_id", user.id)
-        .eq("status", "active")
-        .gt("expires_at", now)
-        .order("spawned_at", { ascending: true });
+      if (selectedEventEnded) {
+        setBosses([]);
+      } else {
+        const { data: bossData, error: bossError } = await supabase
+          .from("event_raid_bosses")
+          .select("*")
+          .eq("event_id", selectedEvent.id)
+          .eq("user_id", user.id)
+          .eq("status", "active")
+          .gt("expires_at", now)
+          .order("spawned_at", { ascending: true });
 
-      if (bossError) throw new Error(bossError.message);
-      setBosses(bossData || []);
+        if (bossError) throw new Error(bossError.message);
+        setBosses(bossData || []);
+      }
 
       const { data: rankingData, error: rankingError } = await supabase
         .from("player_event_progress")
         .select("*")
-        .eq("event_id", activeEvent.id)
+        .eq("event_id", selectedEvent.id)
         .gt("event_rank_score", 0)
         .order("event_rank_score", { ascending: false })
         .order("updated_at", { ascending: true })
@@ -130,7 +189,7 @@ export default function RaidEvent() {
       const { data: rewardData, error: rewardError } = await supabase
         .from("event_rank_rewards")
         .select("*")
-        .eq("event_id", activeEvent.id)
+        .eq("event_id", selectedEvent.id)
         .order("min_rank", { ascending: true });
 
       if (rewardError) throw new Error(rewardError.message);
@@ -402,7 +461,7 @@ export default function RaidEvent() {
     return index >= 0 ? index + 1 : null;
   }, [rankings, user]);
 
-  const raidEnded = event ? new Date(event.ends_at) <= new Date() : false;
+  const raidEnded = isRaidEventEnded(event);
   const questSteps = Number(event?.quest_steps_per_lap || 10);
   const questNumber = Number(progress?.quest_number || 1);
   const questLap = Number(progress?.quest_lap || 1);
@@ -443,6 +502,7 @@ export default function RaidEvent() {
       <div className="min-h-screen bg-slate-950 text-white p-6">
         <h1 className="text-3xl font-bold mb-3">Raid Event</h1>
         <p className="text-slate-300">{message}</p>
+        <p className="text-slate-500 text-sm mt-3">Reward claim patch loaded.</p>
       </div>
     );
   }
@@ -735,7 +795,7 @@ export default function RaidEvent() {
                 ))}
               </div>
             ) : (
-              <EmptyBossQueue />
+              <EmptyBossQueue raidEnded={raidEnded} />
             )}
           </div>
         </section>
@@ -785,7 +845,7 @@ function EventHero({ event, progress, myRank }) {
           <div>
             <div className="flex items-center gap-2 text-purple-300 uppercase tracking-[0.3em] text-xs font-bold">
               <Flame className="w-4 h-4" />
-              Weekend Raid Loop Test
+              {isRaidEventEnded(event) ? "Raid Ended · Rewards Open" : "Weekend Raid Loop Test"}
             </div>
 
             <h1 className="text-4xl md:text-6xl font-black mt-3 tracking-tight">
@@ -1085,15 +1145,19 @@ function RankingTable({ rankings, user }) {
   );
 }
 
-function EmptyBossQueue() {
+function EmptyBossQueue({ raidEnded = false }) {
   return (
     <div className="rounded-3xl border border-slate-700 bg-slate-950/70 p-8 text-center">
       <div className="w-16 h-16 rounded-3xl bg-purple-500/10 border border-purple-400/20 flex items-center justify-center mx-auto">
         <ScrollText className="w-8 h-8 text-purple-300" />
       </div>
-      <h4 className="text-2xl font-black mt-4">The path is clear</h4>
+      <h4 className="text-2xl font-black mt-4">
+        {raidEnded ? "Raid Event Complete" : "The path is clear"}
+      </h4>
       <p className="text-slate-400 mt-2">
-        Continue quests to uncover raid bosses and push your ranking score higher.
+        {raidEnded
+          ? "Questing and boss attacks are closed. Review the leaderboard and claim your rank reward."
+          : "Continue quests to uncover raid bosses and push your ranking score higher."}
       </p>
     </div>
   );
