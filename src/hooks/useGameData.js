@@ -60,6 +60,10 @@ async function ensureProfile(user) {
       losses: 0,
       quests_completed: 0,
 
+      tutorial_step: 1,
+      tutorial_completed: false,
+      tutorial_rewards_claimed: [],
+
       stats_regen_at: now,
       created_at: now,
       updated_at: now,
