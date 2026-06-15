@@ -1,0 +1,25 @@
+{
+  "name": "Deck",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Deck name"
+    },
+    "card_ids": {
+      "type": "array",
+      "description": "Array of PlayerCard IDs in this deck",
+      "items": {
+        "type": "string"
+      }
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this is the active battle deck"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

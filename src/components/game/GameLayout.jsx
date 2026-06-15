@@ -5,7 +5,7 @@ import PlayerBar from './PlayerBar';
 import ChooseFaction from '@/components/auth/ChooseFaction';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
-import { User, LogOut, X, Zap, Sword, Shield } from 'lucide-react';
+import { LogOut, X, Zap, Sword, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 
@@ -18,71 +18,71 @@ export default function GameLayout() {
   const { data: profile = null, isLoading } = useQuery({
     queryKey: ['playerProfile'],
     queryFn: async () => {
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-  if (userError) {
-    throw userError;
-  }
+      if (userError) {
+        throw userError;
+      }
 
-  if (!user) {
-    return null;
-  }
+      if (!user) {
+        return null;
+      }
 
-  const { data: existingProfile, error: profileError } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .maybeSingle();
+      const { data: existingProfile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle();
 
-  if (profileError) {
-    throw profileError;
-  }
+      if (profileError) {
+        throw profileError;
+      }
 
-  if (existingProfile) {
-    return existingProfile;
-  }
+      if (existingProfile) {
+        return existingProfile;
+      }
 
-  const now = new Date().toISOString();
+      const now = new Date().toISOString();
 
-  const { data: createdProfile, error: createError } = await supabase
-    .from('profiles')
-    .insert({
-      id: user.id,
-      email: user.email,
-      display_name:
-        user.user_metadata?.full_name ||
-        user.user_metadata?.name ||
-        user.email?.split('@')[0] ||
-        'Adventurer',
-      level: 1,
-      experience: 0,
-      gold: 1000,
-      gems: 50,
-      stamina: 100,
-      max_stamina: 100,
-      attack_energy: 100,
-      max_attack_energy: 100,
-      defense_energy: 100,
-      max_defense_energy: 100,
-      wins: 0,
-      losses: 0,
-      quests_completed: 0,
-      stats_regen_at: now,
-      created_at: now,
-      updated_at: now,
-    })
-    .select()
-    .single();
+      const { data: createdProfile, error: createError } = await supabase
+        .from('profiles')
+        .insert({
+          id: user.id,
+          email: user.email,
+          display_name:
+            user.user_metadata?.full_name ||
+            user.user_metadata?.name ||
+            user.email?.split('@')[0] ||
+            'Adventurer',
+          level: 1,
+          experience: 0,
+          gold: 1000,
+          gems: 50,
+          stamina: 100,
+          max_stamina: 100,
+          attack_energy: 100,
+          max_attack_energy: 100,
+          defense_energy: 100,
+          max_defense_energy: 100,
+          wins: 0,
+          losses: 0,
+          quests_completed: 0,
+          stats_regen_at: now,
+          created_at: now,
+          updated_at: now,
+        })
+        .select()
+        .single();
 
-  if (createError) {
-    throw createError;
-  }
+      if (createError) {
+        throw createError;
+      }
 
-  return createdProfile;
-},
+      return createdProfile;
+    },
     initialData: null,
   });
 
@@ -104,6 +104,7 @@ export default function GameLayout() {
         },
         () => {
           queryClient.invalidateQueries({ queryKey: ['playerProfile'] });
+          queryClient.invalidateQueries({ queryKey: ['profile'] });
         }
       )
       .subscribe();
@@ -153,6 +154,7 @@ export default function GameLayout() {
         onChosen={(updatedProfile) => {
           setLocalProfile(updatedProfile);
           queryClient.invalidateQueries({ queryKey: ['playerProfile'] });
+          queryClient.invalidateQueries({ queryKey: ['profile'] });
         }}
       />
     );
@@ -160,16 +162,6 @@ export default function GameLayout() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/* Direct profile/logout button */}
-      <button
-        type="button"
-        onClick={() => setProfileOpen(true)}
-        className="fixed top-16 left-3 z-[9999] w-11 h-11 rounded-xl border border-primary/40 bg-background/90 backdrop-blur-md flex items-center justify-center shadow-xl hover:bg-primary/10 transition-all"
-        aria-label="Open profile menu"
-      >
-        <User className="w-5 h-5 text-primary" />
-      </button>
-
       {profileOpen && (
         <div className="fixed inset-0 z-[10000] bg-background/75 backdrop-blur-sm flex items-center justify-center px-4">
           <div className="w-full max-w-sm rounded-2xl border border-primary/30 bg-card shadow-2xl overflow-hidden">
@@ -243,21 +235,21 @@ export default function GameLayout() {
               <div className="grid grid-cols-3 gap-2">
                 <div className="rounded-xl border border-border bg-background/40 p-3 text-center">
                   <p className="text-sm font-bold text-yellow-400">
-                    {activeProfile?.gold ?? 0}
+                    {(activeProfile?.gold || 0).toLocaleString()}
                   </p>
                   <p className="text-[10px] text-muted-foreground">Gold</p>
                 </div>
 
                 <div className="rounded-xl border border-border bg-background/40 p-3 text-center">
                   <p className="text-sm font-bold text-cyan-300">
-                    {activeProfile?.gems ?? 0}
+                    {(activeProfile?.gems || 0).toLocaleString()}
                   </p>
                   <p className="text-[10px] text-muted-foreground">Gems</p>
                 </div>
 
                 <div className="rounded-xl border border-border bg-background/40 p-3 text-center">
                   <p className="text-sm font-bold text-green-400">
-                    {activeProfile?.wins ?? 0}
+                    {(activeProfile?.wins || 0).toLocaleString()}
                   </p>
                   <p className="text-[10px] text-muted-foreground">Wins</p>
                 </div>
@@ -281,9 +273,13 @@ export default function GameLayout() {
         </div>
       )}
 
-      <PlayerBar profile={activeProfile} isLoading={isLoading} />
+      <PlayerBar
+        profile={activeProfile}
+        isLoading={isLoading}
+        onProfileClick={() => setProfileOpen(true)}
+      />
 
-      <main className="flex-1 pb-20 overflow-auto">
+      <main className="flex-1 pb-20 overflow-y-auto">
         <Outlet context={{ profile: activeProfile }} />
       </main>
 

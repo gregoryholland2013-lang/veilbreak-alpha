@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Sword, Shield, Heart, Sparkles, ArrowUp } from 'lucide-react';
+import CardProtectionButton from '@/components/cards/CardProtectionButton';
 
 const elementIcons = {
   fire: '🔥',
@@ -20,7 +21,14 @@ const rarityColors = {
   legendary: 'bg-primary/20 text-primary border-primary/30',
 };
 
-export default function CardDetailModal({ card, playerCard, open, onClose, onLevelUp }) {
+export default function CardDetailModal({
+  card,
+  playerCard,
+  open,
+  onClose,
+  onLevelUp,
+  onProtectionUpdated,
+}) {
   if (!card) return null;
 
   const level = playerCard?.level || 1;
@@ -71,6 +79,23 @@ export default function CardDetailModal({ card, playerCard, open, onClose, onLev
           <p className="text-sm text-muted-foreground">
             {card.description || 'A mysterious card of power.'}
           </p>
+
+          {playerCard && (
+            <div className="rounded-xl border border-border bg-background/50 p-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold text-foreground">Card Protection</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Protected cards cannot be consumed during enhance or evolution.
+                  </p>
+                </div>
+                
+                <CardProtectionButton
+                  playerCard={playerCard}
+                  size="md"
+                  onUpdated={onProtectionUpdated}
+                  />
+                </div>
+              )}
 
           {/* Stats */}
           <div className="grid grid-cols-3 gap-2">

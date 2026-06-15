@@ -1,0 +1,109 @@
+{
+  "name": "Card",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Card name"
+    },
+    "description": {
+      "type": "string",
+      "description": "Lore/flavor text"
+    },
+    "image_url": {
+      "type": "string",
+      "description": "Card art URL"
+    },
+    "rarity": {
+      "type": "string",
+      "enum": [
+        "common",
+        "rare",
+        "epic",
+        "legendary"
+      ],
+      "description": "Card rarity tier"
+    },
+    "element": {
+      "type": "string",
+      "enum": [
+        "fire",
+        "water",
+        "earth",
+        "light",
+        "dark"
+      ],
+      "description": "Elemental affinity"
+    },
+    "card_type": {
+      "type": "string",
+      "enum": [
+        "warrior",
+        "mage",
+        "archer",
+        "healer",
+        "tank"
+      ],
+      "description": "Class type"
+    },
+    "base_attack": {
+      "type": "number",
+      "description": "Base attack stat"
+    },
+    "base_defense": {
+      "type": "number",
+      "description": "Base defense stat"
+    },
+    "base_hp": {
+      "type": "number",
+      "description": "Base health points"
+    },
+    "skill_name": {
+      "type": "string",
+      "description": "Special ability name"
+    },
+    "skill_description": {
+      "type": "string",
+      "description": "What the skill does"
+    },
+    "skill_power": {
+      "type": "number",
+      "description": "Skill multiplier"
+    },
+    "max_level": {
+      "type": "number",
+      "description": "Maximum level this card can reach"
+    },
+    "summon_weight": {
+      "type": "number",
+      "description": "Weight for gacha pulls (lower = rarer)"
+    }
+  },
+  "required": [
+    "name",
+    "rarity",
+    "element",
+    "card_type",
+    "base_attack",
+    "base_defense",
+    "base_hp"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {},
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

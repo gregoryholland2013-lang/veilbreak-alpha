@@ -1,0 +1,35 @@
+{
+  "name": "PlayerInventory",
+  "type": "object",
+  "properties": {
+    "skill_shards": {
+      "type": "number",
+      "default": 0,
+      "description": "Used to upgrade card skills"
+    },
+    "fodder_cards": {
+      "type": "number",
+      "default": 0,
+      "description": "Used as material for card enhancement"
+    },
+    "aether_dust": {
+      "type": "number",
+      "default": 0,
+      "description": "Restores PvP ATK/DEF push points"
+    },
+    "spirit_water": {
+      "type": "number",
+      "default": 0,
+      "description": "Restores quest stamina"
+    },
+    "quests_completed": {
+      "type": "number",
+      "default": 0
+    },
+    "boss_quests_cleared": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": []
+}

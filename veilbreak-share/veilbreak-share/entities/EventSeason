@@ -1,0 +1,68 @@
+{
+  "name": "EventSeason",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Event name e.g. 'Dragon Siege'"
+    },
+    "description": {
+      "type": "string"
+    },
+    "banner_image": {
+      "type": "string"
+    },
+    "element_theme": {
+      "type": "string",
+      "enum": [
+        "fire",
+        "water",
+        "earth",
+        "light",
+        "dark"
+      ]
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": false
+    },
+    "starts_at": {
+      "type": "string",
+      "description": "ISO date"
+    },
+    "ends_at": {
+      "type": "string",
+      "description": "ISO date"
+    },
+    "spirit_water_cost": {
+      "type": "number",
+      "default": 1,
+      "description": "Spirit water per floor attempt"
+    },
+    "total_floors": {
+      "type": "number",
+      "default": 50
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {},
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "GuildApplication",
+  "type": "object",
+  "properties": {
+    "guild_id": {
+      "type": "string"
+    },
+    "applicant_email": {
+      "type": "string"
+    },
+    "applicant_name": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "accepted",
+        "rejected"
+      ],
+      "default": "pending"
+    },
+    "message": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "guild_id",
+    "applicant_email"
+  ]
+}

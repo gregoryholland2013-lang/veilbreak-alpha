@@ -1,0 +1,41 @@
+{
+  "name": "PlayerEventProgress",
+  "type": "object",
+  "properties": {
+    "event_id": {
+      "type": "string"
+    },
+    "current_floor": {
+      "type": "number",
+      "default": 1
+    },
+    "prestige_count": {
+      "type": "number",
+      "default": 0,
+      "description": "How many full 50-floor loops completed"
+    },
+    "floors_cleared_first_time": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "default": [],
+      "description": "Floor numbers cleared for first-time reward"
+    },
+    "total_damage_dealt": {
+      "type": "number",
+      "default": 0
+    },
+    "total_bosses_killed": {
+      "type": "number",
+      "default": 0
+    },
+    "event_rank_score": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "event_id"
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "name": "Quest",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": [
+        "easy",
+        "medium",
+        "hard",
+        "boss"
+      ],
+      "default": "easy"
+    },
+    "stamina_cost": {
+      "type": "number",
+      "default": 5
+    },
+    "gold_reward_min": {
+      "type": "number",
+      "default": 50
+    },
+    "gold_reward_max": {
+      "type": "number",
+      "default": 150
+    },
+    "gem_reward": {
+      "type": "number",
+      "default": 0
+    },
+    "xp_reward": {
+      "type": "number",
+      "default": 20
+    },
+    "skill_shard_reward": {
+      "type": "number",
+      "default": 0
+    },
+    "fodder_reward": {
+      "type": "number",
+      "default": 0
+    },
+    "quest_order": {
+      "type": "number",
+      "default": 1
+    },
+    "is_boss": {
+      "type": "boolean",
+      "default": false
+    },
+    "enemy_name": {
+      "type": "string"
+    },
+    "enemy_power": {
+      "type": "number",
+      "default": 100
+    },
+    "flavor_text": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "difficulty"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {},
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

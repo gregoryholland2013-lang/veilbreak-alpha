@@ -20,8 +20,9 @@ import Social from './pages/Social';
 import GuildPage from './pages/Guild';
 import EventDungeon from './pages/EventDungeon';
 import HolyWars from './pages/HolyWars';
-import RaidEvent from "./pages/RaidEvent";
+import RaidEvent from './pages/RaidEvent';
 import Inventory from '@/pages/Inventory';
+import Shop from './pages/Shop';
 
 const AuthenticatedApp = () => {
   return (
@@ -30,6 +31,7 @@ const AuthenticatedApp = () => {
         <Route path="/" element={<Home />} />
         <Route path="/collection" element={<Collection />} />
         <Route path="/summon" element={<Summon />} />
+        <Route path="/shop" element={<Shop />} />
         <Route path="/deck-builder" element={<DeckBuilder />} />
         <Route path="/battle" element={<Battle />} />
         <Route path="/quests" element={<Quests />} />

@@ -1,0 +1,55 @@
+{
+  "name": "PlayerProfile",
+  "type": "object",
+  "properties": {
+    "display_name": {
+      "type": "string",
+      "description": "Player display name"
+    },
+    "level": {
+      "type": "number",
+      "default": 1,
+      "description": "Player level"
+    },
+    "experience": {
+      "type": "number",
+      "default": 0,
+      "description": "Player XP"
+    },
+    "gold": {
+      "type": "number",
+      "default": 1000,
+      "description": "Gold currency"
+    },
+    "gems": {
+      "type": "number",
+      "default": 50,
+      "description": "Premium currency"
+    },
+    "stamina": {
+      "type": "number",
+      "default": 100,
+      "description": "Current stamina"
+    },
+    "max_stamina": {
+      "type": "number",
+      "default": 100,
+      "description": "Max stamina"
+    },
+    "wins": {
+      "type": "number",
+      "default": 0
+    },
+    "losses": {
+      "type": "number",
+      "default": 0
+    },
+    "quests_completed": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "display_name"
+  ]
+}

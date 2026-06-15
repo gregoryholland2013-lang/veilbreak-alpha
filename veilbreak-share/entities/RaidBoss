@@ -1,0 +1,75 @@
+{
+  "name": "RaidBoss",
+  "type": "object",
+  "properties": {
+    "event_id": {
+      "type": "string"
+    },
+    "owner_email": {
+      "type": "string",
+      "description": "Player who triggered this boss"
+    },
+    "boss_name": {
+      "type": "string"
+    },
+    "boss_element": {
+      "type": "string",
+      "enum": [
+        "fire",
+        "water",
+        "earth",
+        "light",
+        "dark"
+      ]
+    },
+    "floor_level": {
+      "type": "number",
+      "description": "Which floor triggered this boss"
+    },
+    "max_hp": {
+      "type": "number",
+      "default": 10000
+    },
+    "current_hp": {
+      "type": "number",
+      "default": 10000
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "alive",
+        "defeated"
+      ],
+      "default": "alive"
+    },
+    "shared_to": {
+      "type": "string",
+      "enum": [
+        "private",
+        "friends",
+        "public"
+      ],
+      "default": "private"
+    },
+    "trigger_type": {
+      "type": "string",
+      "enum": [
+        "random",
+        "milestone"
+      ],
+      "default": "random"
+    },
+    "defeated_at": {
+      "type": "string"
+    },
+    "total_attackers": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "event_id",
+    "owner_email",
+    "boss_name"
+  ]
+}

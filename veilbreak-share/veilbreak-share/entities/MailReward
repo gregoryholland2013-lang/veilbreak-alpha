@@ -1,0 +1,62 @@
+{
+  "name": "MailReward",
+  "type": "object",
+  "properties": {
+    "day": {
+      "type": "number",
+      "description": "Day 1\u20137 of the weekly cycle"
+    },
+    "title": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "reward_type": {
+      "type": "string",
+      "enum": [
+        "gold",
+        "gems",
+        "stamina_potion",
+        "atk_boost",
+        "def_boost",
+        "card_pack",
+        "skill_shards",
+        "fodder"
+      ],
+      "description": "What kind of reward"
+    },
+    "reward_amount": {
+      "type": "number",
+      "default": 1
+    },
+    "icon": {
+      "type": "string",
+      "description": "Emoji icon"
+    }
+  },
+  "required": [
+    "day",
+    "title",
+    "reward_type",
+    "reward_amount"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {},
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

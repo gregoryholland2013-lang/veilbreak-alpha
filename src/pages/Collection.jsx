@@ -11,7 +11,6 @@ import {
 import GameCard from '@/components/game/GameCard';
 import CardDetailModal from '@/components/game/CardDetailModal';
 import PageHeader from '@/components/game/PageHeader';
-import CardProtectionButton from '@/components/cards/CardProtectionButton';
 import {
   Select,
   SelectContent,
@@ -32,6 +31,16 @@ const FACTION_OPTIONS = [
 
 const RARITY_OPTIONS = [
   { value: 'all', label: 'All Rarity' },
+  { value: 'vessel', label: 'Vessel' },
+  { value: 'awakened', label: 'Awakened' },
+  { value: 'ascendant', label: 'Ascendant' },
+  { value: 'exalted', label: 'Exalted' },
+  { value: 'mythic', label: 'Mythic' },
+  { value: 'transcendent', label: 'Transcendent' },
+  { value: 'eclipse', label: 'Eclipse' },
+  { value: 'singularity', label: 'Singularity' },
+
+  // Legacy support so old data does not disappear while we clean Supabase.
   { value: 'common', label: 'Common' },
   { value: 'normal', label: 'Normal' },
   { value: 'high_normal', label: 'High Normal' },
@@ -41,40 +50,45 @@ const RARITY_OPTIONS = [
   { value: 'epic', label: 'Epic' },
   { value: 'legendary', label: 'Legendary' },
   { value: 'ultra_rare', label: 'Ultra Rare' },
-  { value: 'ascended', label: 'Ascended' },
-  { value: 'exalted', label: 'Exalted' },
-  { value: 'paragon', label: 'Paragon' },
-  { value: 'mythic', label: 'Mythic' },
-  { value: 'transcendent', label: 'Transcendent' },
-  { value: 'eclipse', label: 'Eclipse' },
-  { value: 'singularity', label: 'Singularity' },
 ];
 
 const RARITY_RANK = {
+  vessel: 1,
   common: 1,
   normal: 1,
+
+  awakened: 2,
   high_normal: 2,
+
+  ascendant: 3,
   rare: 3,
+
+  exalted: 4,
   super_rare: 4,
+
+  mythic: 5,
   super_super_rare: 5,
   epic: 5,
+
+  transcendent: 6,
   legendary: 6,
+
+  eclipse: 7,
   ultra_rare: 7,
-  ascended: 8,
-  exalted: 9,
-  paragon: 10,
-  mythic: 11,
-  transcendent: 12,
-  eclipse: 13,
-  singularity: 14,
+
+  singularity: 8,
 };
 
-function normalizeText(value) {
-  return String(value || '').toLowerCase().trim();
+function normalizeKey(value) {
+  return String(value || '')
+    .toLowerCase()
+    .trim()
+    .replaceAll(' ', '_')
+    .replaceAll('-', '_');
 }
 
 function getCardFaction(card) {
-  return normalizeText(
+  return normalizeKey(
     card?.faction ||
       card?.faction_name ||
       card?.card_faction ||
@@ -84,11 +98,11 @@ function getCardFaction(card) {
 }
 
 function getCardRarity(card) {
-  return normalizeText(card?.rarity || 'common');
+  return normalizeKey(card?.rarity || 'common');
 }
 
 function getFactionLabel(value) {
-  const normalized = normalizeText(value);
+  const normalized = normalizeKey(value);
 
   return (
     FACTION_OPTIONS.find((faction) => faction.value === normalized)?.label ||
@@ -98,7 +112,7 @@ function getFactionLabel(value) {
 }
 
 function getFactionIcon(value) {
-  const normalized = normalizeText(value);
+  const normalized = normalizeKey(value);
 
   return (
     FACTION_OPTIONS.find((faction) => faction.value === normalized)?.icon ||
@@ -168,11 +182,14 @@ export default function Collection() {
 
         if (!card) return null;
 
+        const rarity = getCardRarity(card);
+        const faction = getCardFaction(card);
+
         return {
           card,
           playerCard: pc,
-          faction: getCardFaction(card),
-          rarity: getCardRarity(card),
+          faction,
+          rarity,
           power: getOwnedCardPower(pc, card),
         };
       })
@@ -208,11 +225,13 @@ export default function Collection() {
   }, [enrichedCards, factionFilter, rarityFilter]);
 
   const handleProtectionUpdated = (updatedCard) => {
+    const nextCard = Array.isArray(updatedCard) ? updatedCard[0] : updatedCard;
+
     queryClient.invalidateQueries({ queryKey: ['playerCards'] });
     queryClient.invalidateQueries({ queryKey: ['collection'] });
 
-    if (selectedPlayerCard?.id === updatedCard?.id) {
-      setSelectedPlayerCard(updatedCard);
+    if (selectedPlayerCard?.id === nextCard?.id) {
+      setSelectedPlayerCard(nextCard);
     }
   };
 
@@ -250,6 +269,10 @@ export default function Collection() {
         },
       });
 
+      queryClient.invalidateQueries({ queryKey: ['playerCards'] });
+      queryClient.invalidateQueries({ queryKey: ['playerProfile'] });
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+
       toast.success(levelUp ? 'Level Up!' : 'XP gained!');
     } catch (error) {
       console.error(error);
@@ -259,75 +282,81 @@ export default function Collection() {
 
   return (
     <div className="max-w-lg mx-auto space-y-4">
-      <PageHeader title="Collection" />
+      <PageHeader title="Collection" subtitle="Your owned cards" />
 
-      <div className="px-4 space-y-4">
-        <div className="flex gap-2">
-          <Select value={factionFilter} onValueChange={setFactionFilter}>
-            <SelectTrigger className="w-36 h-8 text-xs">
-              <SelectValue>
-                {factionFilter === 'all'
-                  ? 'All Factions'
-                  : `${getFactionIcon(factionFilter)} ${getFactionLabel(
-                      factionFilter
-                    )}`}
-              </SelectValue>
-            </SelectTrigger>
+      <div className="px-4 pb-6 space-y-4">
+        <div className="rounded-2xl border border-border/70 bg-card/70 p-3 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="font-display text-sm font-black text-primary">
+                Card Vault
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                {filtered.length} shown · {enrichedCards.length} owned
+              </p>
+            </div>
 
-            <SelectContent>
-              {FACTION_OPTIONS.map((faction) => (
-                <SelectItem key={faction.value} value={faction.value}>
-                  {faction.icon} {faction.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            <div className="text-right">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Sorted by
+              </p>
+              <p className="text-xs font-bold text-foreground">Power</p>
+            </div>
+          </div>
 
-          <Select value={rarityFilter} onValueChange={setRarityFilter}>
-            <SelectTrigger className="w-32 h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
+          <div className="grid grid-cols-2 gap-2">
+            <Select value={factionFilter} onValueChange={setFactionFilter}>
+              <SelectTrigger className="h-9 text-xs">
+                <SelectValue placeholder="All Factions" />
+              </SelectTrigger>
 
-            <SelectContent>
-              {RARITY_OPTIONS.map((rarity) => (
-                <SelectItem key={rarity.value} value={rarity.value}>
-                  {rarity.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+              <SelectContent>
+                {FACTION_OPTIONS.map((faction) => (
+                  <SelectItem key={faction.value} value={faction.value}>
+                    {faction.icon} {faction.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={rarityFilter} onValueChange={setRarityFilter}>
+              <SelectTrigger className="h-9 text-xs">
+                <SelectValue placeholder="All Rarity" />
+              </SelectTrigger>
+
+              <SelectContent>
+                {RARITY_OPTIONS.map((rarity) => (
+                  <SelectItem key={rarity.value} value={rarity.value}>
+                    {rarity.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {factionFilter !== 'all' && (
+            <p className="text-[11px] text-muted-foreground">
+              Filtered by {getFactionIcon(factionFilter)}{' '}
+              {getFactionLabel(factionFilter)}
+            </p>
+          )}
         </div>
 
-        <p className="text-xs text-muted-foreground">
-          {filtered.length} cards
-          {factionFilter !== 'all'
-            ? ` · ${getFactionIcon(factionFilter)} ${getFactionLabel(
-                factionFilter
-              )}`
-            : ''}
-        </p>
-
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-4 justify-items-center">
           <AnimatePresence>
             {filtered.map(({ card, playerCard }) => (
               <motion.div
                 key={playerCard.id}
                 layout
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
               >
                 <GameCard
                   card={card}
                   playerCard={playerCard}
-                  size="sm"
-                  actionSlot={
-                    <CardProtectionButton
-                      playerCard={playerCard}
-                      size="xs"
-                      onUpdated={handleProtectionUpdated}
-                    />
-                  }
+                  size="md"
+                  showProtectionBadge={false}
                   onClick={() => {
                     setSelectedCard(card);
                     setSelectedPlayerCard(playerCard);
@@ -340,7 +369,7 @@ export default function Collection() {
 
         {filtered.length === 0 && (
           <div className="text-center py-12 text-muted-foreground">
-            <p className="font-display text-lg">No cards found</p>
+            <p className="font-display text-lg text-primary">No cards found</p>
             <p className="text-sm mt-1">
               Try changing your faction or rarity filter.
             </p>
@@ -356,6 +385,7 @@ export default function Collection() {
             setSelectedPlayerCard(null);
           }}
           onLevelUp={handleLevelUp}
+          onProtectionUpdated={handleProtectionUpdated}
         />
       </div>
     </div>

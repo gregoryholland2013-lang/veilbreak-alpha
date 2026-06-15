@@ -68,10 +68,10 @@ export default function CardProtectionButton({
       onMouseDown={(event) => event.stopPropagation()}
       disabled={saving}
       title={isProtected ? 'Unprotect card' : 'Protect card'}
-      className={`${buttonSize} relative z-[100] rounded-xl border flex items-center justify-center transition-all disabled:opacity-60 disabled:cursor-wait ${
+      className={`${buttonSize} relative z-[100] rounded-lg border flex items-center justify-center transition-all disabled:opacity-60 disabled:cursor-wait ${
         isProtected
-          ? 'border-yellow-400/70 bg-yellow-400/25 text-yellow-200 shadow-lg shadow-yellow-900/40'
-          : 'border-slate-500/80 bg-black/85 text-slate-300 hover:text-yellow-200 hover:border-yellow-400/70 hover:bg-yellow-400/15'
+          ? 'border-primary/60 bg-primary/15 text-primary'
+          : 'border-border bg-background/70 text-muted-foreground hover:text-primary hover:border-primary/50 hover:bg-primary/10'
       }`}
     >
       {isProtected ? (

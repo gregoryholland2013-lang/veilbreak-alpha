@@ -1,67 +1,110 @@
 import React from 'react';
-import { Coins, Gem, Zap } from 'lucide-react';
+import { Coins, Gem, Zap, UserRound } from 'lucide-react';
 import { motion } from 'framer-motion';
 
-export default function PlayerBar({ profile }) {
+function formatNumber(value) {
+  const num = Number(value || 0);
+
+  if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
+  if (num >= 10000) return `${Math.round(num / 1000)}K`;
+
+  return num.toLocaleString();
+}
+
+export default function PlayerBar({ profile, onProfileClick }) {
   if (!profile) return null;
 
-  const xpForNext    = profile.level * 100;
-  const xpPercent    = Math.min((profile.experience / xpForNext) * 100, 100);
-  const staminaPercent = Math.min(((profile.stamina || 0) / (profile.max_stamina || 100)) * 100, 100);
+  const level = Number(profile.level || 1);
+  const xpForNext = level * 100;
+  const xpPercent = Math.min(
+    ((Number(profile.experience || 0) / xpForNext) * 100) || 0,
+    100
+  );
+
+  const stamina = Number(profile.stamina || 0);
+  const maxStamina = Number(profile.max_stamina || 100);
+  const staminaPercent = Math.min((stamina / maxStamina) * 100, 100);
 
   return (
-    <div className="relative bg-gradient-to-r from-slate-900/95 via-card/95 to-slate-900/95 backdrop-blur-md border-b border-border/60 px-4 py-2">
-      {/* Gold top line */}
-      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
-      <div className="max-w-lg mx-auto flex items-center gap-3">
+    <header className="sticky top-0 z-40 border-b border-primary/10 bg-[#080b14]/92 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
 
-        {/* Level orb */}
-        <div className="relative w-10 h-10 rounded-full bg-gradient-to-br from-primary/40 to-primary/10 border-2 border-primary/60 flex items-center justify-center flex-shrink-0 shadow-[0_0_10px_rgba(250,189,50,0.4)]">
-          <span className="font-display font-black text-sm text-primary">{profile.level}</span>
+      <div className="mx-auto flex max-w-lg items-center gap-3 px-3 py-2">
+        <button
+          type="button"
+          onClick={onProfileClick}
+          className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/45 bg-gradient-to-br from-primary/25 via-primary/10 to-transparent shadow-[0_0_18px_rgba(250,189,50,0.22)] transition-all hover:scale-[1.03] hover:border-primary/70 hover:bg-primary/20"
+          aria-label="Open player profile"
+        >
+          <div className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-primary/50 bg-background text-[10px] font-black text-primary">
+            {level}
+          </div>
+
+          <UserRound className="h-5 w-5 text-primary" />
+        </button>
+
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 flex items-end justify-between gap-2">
+            <div className="min-w-0">
+              <p className="truncate text-[12px] font-black leading-none text-foreground">
+                {profile.display_name || 'Adventurer'}
+              </p>
+
+              <p className="mt-0.5 truncate text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
+                Lv. {level}
+                {profile.faction ? ` · ${profile.faction}` : ''}
+              </p>
+            </div>
+
+            <p className="shrink-0 text-[10px] font-bold text-primary">
+              {Math.round(xpPercent)}%
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <div className="h-1.5 overflow-hidden rounded-full bg-muted/45">
+              <motion.div
+                className="h-full rounded-full bg-gradient-to-r from-primary/75 via-yellow-300 to-primary"
+                initial={{ width: 0 }}
+                animate={{ width: `${xpPercent}%` }}
+                transition={{ duration: 0.6, ease: 'easeOut' }}
+              />
+            </div>
+
+            <div className="h-1 overflow-hidden rounded-full bg-muted/35">
+              <motion.div
+                className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-green-400 to-emerald-300"
+                initial={{ width: 0 }}
+                animate={{ width: `${staminaPercent}%` }}
+                transition={{ duration: 0.6, ease: 'easeOut', delay: 0.08 }}
+              />
+            </div>
+          </div>
         </div>
 
-        {/* Name + XP bar */}
-        <div className="flex-1 min-w-0">
-          <div className="flex justify-between items-baseline mb-0.5">
-            <p className="text-[11px] font-bold text-foreground truncate">{profile.display_name}</p>
-            <p className="text-[9px] text-muted-foreground ml-1 flex-shrink-0">{Math.round(xpPercent)}%</p>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <div className="min-w-[42px] rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-2 py-1 text-center">
+            <Zap className="mx-auto h-3 w-3 text-emerald-300" />
+            <p className="mt-0.5 text-[10px] font-black leading-none text-emerald-200">
+              {formatNumber(stamina)}
+            </p>
           </div>
-          {/* XP bar */}
-          <div className="h-1.5 bg-muted/40 rounded-full overflow-hidden">
-            <motion.div
-              className="h-full rounded-full bg-gradient-to-r from-primary/80 to-yellow-400"
-              initial={{ width: 0 }}
-              animate={{ width: `${xpPercent}%` }}
-              transition={{ duration: 0.6, ease: 'easeOut' }}
-            />
-          </div>
-          {/* Stamina bar */}
-          <div className="h-1 bg-muted/30 rounded-full overflow-hidden mt-0.5">
-            <motion.div
-              className="h-full rounded-full bg-gradient-to-r from-green-600 to-green-400"
-              initial={{ width: 0 }}
-              animate={{ width: `${staminaPercent}%` }}
-              transition={{ duration: 0.6, ease: 'easeOut', delay: 0.1 }}
-            />
-          </div>
-        </div>
 
-        {/* Resources */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="flex flex-col items-center bg-green-500/10 border border-green-500/20 rounded-lg px-2 py-0.5">
-            <Zap className="w-3 h-3 text-green-400" />
-            <span className="text-[10px] font-black text-green-300 leading-tight">{profile.stamina}</span>
+          <div className="min-w-[46px] rounded-xl border border-yellow-400/20 bg-yellow-400/10 px-2 py-1 text-center">
+            <Coins className="mx-auto h-3 w-3 text-yellow-300" />
+            <p className="mt-0.5 text-[10px] font-black leading-none text-yellow-200">
+              {formatNumber(profile.gold)}
+            </p>
           </div>
-          <div className="flex flex-col items-center bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-2 py-0.5">
-            <Coins className="w-3 h-3 text-yellow-400" />
-            <span className="text-[10px] font-black text-yellow-300 leading-tight">{(profile.gold || 0).toLocaleString()}</span>
-          </div>
-          <div className="flex flex-col items-center bg-blue-500/10 border border-blue-500/20 rounded-lg px-2 py-0.5">
-            <Gem className="w-3 h-3 text-blue-400" />
-            <span className="text-[10px] font-black text-blue-300 leading-tight">{profile.gems || 0}</span>
+
+          <div className="min-w-[46px] rounded-xl border border-blue-400/20 bg-blue-400/10 px-2 py-1 text-center">
+            <Gem className="mx-auto h-3 w-3 text-blue-300" />
+            <p className="mt-0.5 text-[10px] font-black leading-none text-blue-200">
+              {formatNumber(profile.gems)}
+            </p>
           </div>
         </div>
       </div>
-    </div>
+    </header>
   );
 }

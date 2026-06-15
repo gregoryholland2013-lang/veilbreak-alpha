@@ -1,0 +1,23 @@
+{
+  "name": "PlayerLoginRecord",
+  "type": "object",
+  "properties": {
+    "week_start": {
+      "type": "string",
+      "description": "ISO date string of the Monday that started this week's cycle"
+    },
+    "claimed_days": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "description": "Which day numbers (1-7) have been claimed this week",
+      "default": []
+    },
+    "last_claim_date": {
+      "type": "string",
+      "description": "ISO date of last claim, to prevent double-claiming same day"
+    }
+  },
+  "required": []
+}

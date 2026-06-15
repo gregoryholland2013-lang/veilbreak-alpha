@@ -11,6 +11,30 @@ const rarityStyles = {
     edge: 'bg-slate-400',
     shine: false,
   },
+  vessel: {
+  border: 'border-slate-400/70',
+  glow: 'shadow-[0_0_10px_rgba(148,163,184,0.25)]',
+  label: 'bg-slate-500/20 text-slate-200',
+  gradient: 'from-slate-800 to-slate-950',
+  edge: 'bg-slate-300',
+  shine: false,
+},
+awakened: {
+  border: 'border-blue-400',
+  glow: 'shadow-[0_0_16px_rgba(96,165,250,0.55)]',
+  label: 'bg-blue-500/25 text-blue-200',
+  gradient: 'from-blue-950/80 to-slate-950',
+  edge: 'bg-blue-400',
+  shine: false,
+},
+ascendant: {
+  border: 'border-purple-400',
+  glow: 'shadow-[0_0_18px_rgba(192,132,252,0.65)]',
+  label: 'bg-purple-500/25 text-purple-200',
+  gradient: 'from-purple-950/80 to-slate-950',
+  edge: 'bg-purple-400',
+  shine: true,
+},
   normal: {
     border: 'border-slate-500/60',
     glow: '',
@@ -273,7 +297,7 @@ export default function GameCard({
             <img
               src={card.image_url}
               alt={card.name}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-cover object-top scale-[1.02]"
             />
           ) : (
             <div
