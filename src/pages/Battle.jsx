@@ -2,13 +2,18 @@ import React, { useEffect, useMemo, useState } from 'react';
 import BattleScreen from '@/components/battle/BattleScreen';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Zap,
-  Trophy,
-  Swords,
-  Shield,
+  CalendarDays,
+  Gift,
   Heart,
+  Medal,
   RotateCcw,
+  Shield,
+  Swords,
   Target,
+  TrendingDown,
+  TrendingUp,
+  Trophy,
+  Zap,
 } from 'lucide-react';
 import PageHeader from '@/components/game/PageHeader';
 import { Button } from '@/components/ui/button';
@@ -45,6 +50,49 @@ function statRange(value) {
 function formatRange(value) {
   const range = statRange(value);
   return `${range.low.toLocaleString()}–${range.high.toLocaleString()}`;
+}
+
+function formatSigned(value) {
+  const numberValue = Number(value || 0);
+  return numberValue >= 0 ? `+${numberValue}` : `${numberValue}`;
+}
+
+function formatDateTime(value) {
+  if (!value) return '—';
+
+  return new Date(value).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function formatRewardJson(rewardJson = {}) {
+  const entries = Object.entries(rewardJson || {}).filter(([, value]) => {
+    return Number(value || 0) > 0;
+  });
+
+  if (!entries.length) return 'Reward TBD';
+
+  return entries
+    .map(([key, value]) => {
+      const label = key
+        .replaceAll('_', ' ')
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+
+      return `${label} ${Number(value).toLocaleString()}`;
+    })
+    .join(' · ');
+}
+
+function getProfileName(profile) {
+  return (
+    profile?.display_name ||
+    profile?.username ||
+    profile?.email ||
+    'Unknown Player'
+  );
 }
 
 function calcDeckStats(deck, playerCardList = [], masterCards = []) {
@@ -121,30 +169,55 @@ function calcDeckStats(deck, playerCardList = [], masterCards = []) {
 }
 
 function estimateAttackerWinPoints(attackerStats, defenderStats) {
-  const defenderStrengthPoints = Math.round((defenderStats.power || 0) / 350);
-  const noDeckPenalty = defenderStats.hasDeck ? 0 : -4;
+  const attackerPower = Math.max(Number(attackerStats.power || 1), 1);
+  const defenderPower = Math.max(Number(defenderStats.power || 1), 1);
 
-  const underdogBonus =
-    attackerStats.power < defenderStats.power
-      ? Math.round((defenderStats.power - attackerStats.power) / 250)
-      : 0;
+  const strengthBase = Math.round(defenderPower / 400);
 
-  return clamp(
-    2 + defenderStrengthPoints + underdogBonus + noDeckPenalty,
-    1,
-    75
-  );
+  const matchupAdjustment =
+    defenderPower > attackerPower
+      ? Math.round((defenderPower - attackerPower) / 180)
+      : -Math.round((attackerPower - defenderPower) / 300);
+
+  return clamp(12 + strengthBase + matchupAdjustment, 3, 80);
+}
+
+function estimateAttackerLossPenalty(attackerStats, defenderStats) {
+  const attackerPower = Math.max(Number(attackerStats.power || 1), 1);
+  const defenderPower = Math.max(Number(defenderStats.power || 1), 1);
+
+  const matchupAdjustment =
+    attackerPower > defenderPower
+      ? Math.round((attackerPower - defenderPower) / 250)
+      : -Math.round((defenderPower - attackerPower) / 350);
+
+  return clamp(8 + matchupAdjustment, 2, 40);
 }
 
 function estimateDefenderWinPoints(attackerStats, defenderStats) {
-  const attackerStrengthPoints = Math.round((attackerStats.power || 0) / 300);
+  const attackerPower = Math.max(Number(attackerStats.power || 1), 1);
+  const defenderPower = Math.max(Number(defenderStats.power || 1), 1);
 
-  const defenderUnderdogBonus =
-    defenderStats.power < attackerStats.power
-      ? Math.round((attackerStats.power - defenderStats.power) / 250)
-      : 0;
+  const strengthBase = Math.round(attackerPower / 450);
 
-  return clamp(4 + attackerStrengthPoints + defenderUnderdogBonus, 3, 90);
+  const matchupAdjustment =
+    attackerPower > defenderPower
+      ? Math.round((attackerPower - defenderPower) / 220)
+      : -Math.round((defenderPower - attackerPower) / 500);
+
+  return clamp(10 + strengthBase + matchupAdjustment, 5, 70);
+}
+
+function getDifficultyLabel(attackerStats, defenderStats) {
+  const attackerPower = Math.max(Number(attackerStats.power || 1), 1);
+  const defenderPower = Math.max(Number(defenderStats.power || 1), 1);
+  const ratio = defenderPower / attackerPower;
+
+  if (ratio >= 1.35) return 'High Value Underdog';
+  if (ratio >= 1.1) return 'Stronger Target';
+  if (ratio >= 0.9) return 'Even Match';
+  if (ratio >= 0.65) return 'Lower Value';
+  return 'Very Low Value';
 }
 
 export default function Battle() {
@@ -159,6 +232,7 @@ export default function Battle() {
   const [attackingId, setAttackingId] = useState(null);
   const [battleOpponent, setBattleOpponent] = useState(null);
   const [battleResolved, setBattleResolved] = useState(false);
+  const [claimingReward, setClaimingReward] = useState(false);
 
   useEffect(() => {
     const channel = supabase
@@ -199,12 +273,122 @@ export default function Battle() {
           queryClient.invalidateQueries({ queryKey: ['allPlayerCards'] });
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'player_battle_weekly_progress',
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['battleWeeklyProgress'] });
+        }
+      )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
   }, [queryClient]);
+
+  const { data: battleSeason = null, isLoading: loadingBattleSeason } =
+    useQuery({
+      queryKey: ['battleSeasonCurrentOrRecent'],
+      queryFn: async () => {
+        const now = new Date().toISOString();
+
+        const { data: activeSeason, error: activeError } = await supabase
+          .from('battle_seasons')
+          .select('*')
+          .eq('status', 'active')
+          .lte('starts_at', now)
+          .gt('ends_at', now)
+          .order('starts_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (activeError) throw activeError;
+        if (activeSeason) return activeSeason;
+
+        const { data: endedSeason, error: endedError } = await supabase
+          .from('battle_seasons')
+          .select('*')
+          .eq('status', 'ended')
+          .order('ends_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (endedError) throw endedError;
+        if (endedSeason) return endedSeason;
+
+        const { data: expiredSeason, error: expiredError } = await supabase
+          .from('battle_seasons')
+          .select('*')
+          .lte('ends_at', now)
+          .order('ends_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (expiredError) throw expiredError;
+
+        return expiredSeason || null;
+      },
+    });
+
+  const battleSeasonEnded = battleSeason
+    ? battleSeason.status === 'ended' || new Date(battleSeason.ends_at) <= new Date()
+    : false;
+
+  const { data: weeklyProgress = [] } = useQuery({
+    queryKey: ['battleWeeklyProgress', battleSeason?.id],
+    enabled: !!battleSeason?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('player_battle_weekly_progress')
+        .select('*')
+        .eq('season_id', battleSeason.id)
+        .order('arena_points', { ascending: false })
+        .order('updated_at', { ascending: true })
+        .limit(100);
+
+      if (error) throw error;
+
+      return data || [];
+    },
+  });
+
+  const { data: battleRewards = [] } = useQuery({
+    queryKey: ['battleRankRewards', battleSeason?.id],
+    enabled: !!battleSeason?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('battle_rank_rewards')
+        .select('*')
+        .eq('season_id', battleSeason.id)
+        .order('min_rank', { ascending: true });
+
+      if (error) throw error;
+
+      return data || [];
+    },
+  });
+
+  const { data: myBattleClaim = null } = useQuery({
+    queryKey: ['battleRewardClaim', battleSeason?.id, profile?.id],
+    enabled: !!battleSeason?.id && !!profile?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('battle_reward_claims')
+        .select('*')
+        .eq('season_id', battleSeason.id)
+        .eq('user_id', profile.id)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      return data || null;
+    },
+  });
 
   const { data: allProfiles = [], isLoading: loadingProfiles } = useQuery({
     queryKey: ['allProfiles'],
@@ -285,6 +469,28 @@ export default function Battle() {
     return calcDeckStats(myActiveDeck, playerCards, cards);
   }, [myActiveDeck, playerCards, cards]);
 
+  const progressByUserId = useMemo(() => {
+    return new Map((weeklyProgress || []).map((row) => [row.user_id, row]));
+  }, [weeklyProgress]);
+
+  const profileById = useMemo(() => {
+    return new Map((allProfiles || []).map((row) => [row.id, row]));
+  }, [allProfiles]);
+
+  const myWeeklyProgress = useMemo(() => {
+    if (!profile?.id) return null;
+
+    return progressByUserId.get(profile.id) || null;
+  }, [profile, progressByUserId]);
+
+  const myWeeklyRank = useMemo(() => {
+    if (!profile?.id || !weeklyProgress.length) return null;
+
+    const index = weeklyProgress.findIndex((row) => row.user_id === profile.id);
+
+    return index >= 0 ? index + 1 : null;
+  }, [profile, weeklyProgress]);
+
   const getOpponentDeckCards = (opponent) => {
     if (!opponent?.activeDeck) return [];
 
@@ -327,27 +533,55 @@ export default function Battle() {
           deckStats
         );
 
+        const possibleLossPoints = estimateAttackerLossPenalty(
+          myDeckStats,
+          deckStats
+        );
+
         const possibleDefenderPoints = estimateDefenderWinPoints(
           myDeckStats,
           deckStats
         );
+
+        const weeklyRow = progressByUserId.get(p.id);
 
         return {
           ...p,
           activeDeck,
           deckStats,
           possibleWinPoints,
+          possibleLossPoints,
           possibleDefenderPoints,
+          difficultyLabel: getDifficultyLabel(myDeckStats, deckStats),
+          weeklyArenaPoints: weeklyRow?.arena_points ?? p.arena_points ?? 0,
         };
       })
       .sort((a, b) => {
-        return (b.arena_points || 0) - (a.arena_points || 0);
+        return (b.weeklyArenaPoints || 0) - (a.weeklyArenaPoints || 0);
       });
-  }, [allProfiles, allDecks, allPlayerCards, cards, profile, myDeckStats]);
+  }, [
+    allProfiles,
+    allDecks,
+    allPlayerCards,
+    cards,
+    profile,
+    myDeckStats,
+    progressByUserId,
+  ]);
 
   const openBattle = async (opponent) => {
     if (!profile) {
       toast.error('Profile has not loaded yet');
+      return;
+    }
+
+    if (!battleSeason) {
+      toast.error('No weekly arena season is available.');
+      return;
+    }
+
+    if (battleSeasonEnded) {
+      toast.error('This weekly arena season has ended. Claim rewards instead.');
       return;
     }
 
@@ -372,53 +606,100 @@ export default function Battle() {
     try {
       const attackerWon = !!battleResult.attackerWon;
 
-      const attackerPoints = attackerWon
-        ? battleOpponent.possibleWinPoints
-        : 0;
+      const attackerPower = Math.max(
+        Number(
+          battleResult.attackerBattlePower ||
+            battleResult.myTotal ||
+            myDeckStats.power ||
+            1
+        ),
+        1
+      );
 
-      const defenderPoints = attackerWon
-        ? 0
-        : battleOpponent.possibleDefenderPoints;
+      const defenderPower = Math.max(
+        Number(
+          battleResult.defenderBattlePower ||
+            battleResult.oppTotal ||
+            battleOpponent.deckStats.power ||
+            1
+        ),
+        1
+      );
+
+      const estimatedWinPoints = estimateAttackerWinPoints(
+        { power: attackerPower },
+        { power: defenderPower }
+      );
+
+      const estimatedLossPoints = estimateAttackerLossPenalty(
+        { power: attackerPower },
+        { power: defenderPower }
+      );
+
+      const estimatedDefenderPoints = estimateDefenderWinPoints(
+        { power: attackerPower },
+        { power: defenderPower }
+      );
 
       const goldReward = attackerWon
-        ? clamp(Math.round(25 + battleOpponent.deckStats.power / 60), 25, 250)
-        : 5;
+        ? clamp(Math.round(25 + defenderPower / 60), 25, 250)
+        : 0;
 
       const xpReward = attackerWon ? 35 : 10;
 
-      const { data, error } = await supabase.rpc('apply_arena_battle_result', {
-        p_defender_id: battleOpponent.id,
-        p_attacker_won: attackerWon,
-        p_attacker_points: attackerPoints,
-        p_defender_points: defenderPoints,
-        p_gold_reward: goldReward,
-        p_xp_reward: xpReward,
-        p_attack_cost: ATTACK_COST,
-      });
+      const { data, error } = await supabase.rpc(
+        'apply_weekly_arena_battle_result',
+        {
+          p_defender_id: battleOpponent.id,
+          p_attacker_won: attackerWon,
+          p_attacker_power: attackerPower,
+          p_defender_power: defenderPower,
+          p_gold_reward: goldReward,
+          p_xp_reward: xpReward,
+          p_attack_cost: ATTACK_COST,
+        }
+      );
 
       if (error) {
         throw error;
       }
 
+      const attackerPointsDelta = Number(
+        data?.attacker_points_delta ??
+          (attackerWon ? estimatedWinPoints : -estimatedLossPoints)
+      );
+
+      const defenderPointsDelta = Number(
+        data?.defender_points_delta ??
+          (attackerWon ? 0 : estimatedDefenderPoints)
+      );
+
       setResult({
         opponent: battleOpponent,
         ...battleResult,
         attackerWon,
-        attackerPoints,
-        defenderPoints,
-        goldReward,
-        xpReward,
+        attackerPointsDelta,
+        defenderPointsDelta,
+        estimatedWinPoints,
+        estimatedLossPoints,
+        estimatedDefenderPoints,
+        goldReward: Number(data?.gold_reward ?? goldReward),
+        xpReward: Number(data?.xp_reward ?? xpReward),
+        attackerBattlePower: attackerPower,
+        defenderBattlePower: defenderPower,
       });
 
       await queryClient.invalidateQueries({ queryKey: ['playerProfile'] });
       await queryClient.invalidateQueries({ queryKey: ['allProfiles'] });
       await queryClient.invalidateQueries({ queryKey: ['allDecks'] });
       await queryClient.invalidateQueries({ queryKey: ['allPlayerCards'] });
+      await queryClient.invalidateQueries({ queryKey: ['battleWeeklyProgress'] });
+      await queryClient.invalidateQueries({ queryKey: ['battleSeasonCurrentOrRecent'] });
 
       toast.success(
         attackerWon
-          ? `Victory! +${attackerPoints} Arena Points`
-          : `Defeat. Defender gained +${defenderPoints} Arena Points`
+          ? `Victory! ${formatSigned(attackerPointsDelta)} Weekly Points`
+          : `Defeat. ${formatSigned(attackerPointsDelta)} Weekly Points. Defender ${formatSigned(defenderPointsDelta)}`
       );
 
       return data;
@@ -427,6 +708,37 @@ export default function Battle() {
       toast.error(error.message || 'Battle failed');
     } finally {
       setAttackingId(null);
+    }
+  };
+
+  const claimBattleReward = async () => {
+    if (!battleSeason?.id) {
+      toast.error('No battle season found.');
+      return;
+    }
+
+    setClaimingReward(true);
+
+    try {
+      const { data, error } = await supabase.rpc('claim_battle_rank_reward', {
+        p_season_id: battleSeason.id,
+      });
+
+      if (error) throw error;
+
+      await queryClient.invalidateQueries({ queryKey: ['playerProfile'] });
+      await queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      await queryClient.invalidateQueries({ queryKey: ['playerItems'] });
+      await queryClient.invalidateQueries({ queryKey: ['battleRewardClaim'] });
+
+      toast.success(
+        `Weekly Arena reward claimed! Rank #${data.rank}.`
+      );
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Could not claim weekly reward.');
+    } finally {
+      setClaimingReward(false);
     }
   };
 
@@ -442,11 +754,7 @@ export default function Battle() {
     return (
       <div className="max-w-lg mx-auto">
         <PageHeader
-          title={`vs ${
-            battleOpponent.display_name ||
-            battleOpponent.email ||
-            'Opponent'
-          }`}
+          title={`vs ${getProfileName(battleOpponent)}`}
         />
 
         <div className="px-4 py-4">
@@ -455,6 +763,7 @@ export default function Battle() {
             opponentDeckCards={opponentDeckCards}
             opponent={battleOpponent}
             possibleWinPoints={battleOpponent.possibleWinPoints}
+            possibleLossPoints={battleOpponent.possibleLossPoints}
             possibleDefenderPoints={battleOpponent.possibleDefenderPoints}
             onFinish={finishBattle}
             onBack={closeBattle}
@@ -469,6 +778,18 @@ export default function Battle() {
       <PageHeader title="Open Arena" />
 
       <div className="px-4 space-y-4">
+        <SeasonPanel
+          season={battleSeason}
+          loading={loadingBattleSeason}
+          ended={battleSeasonEnded}
+          myRank={myWeeklyRank}
+          myProgress={myWeeklyProgress}
+          rewards={battleRewards}
+          claimed={!!myBattleClaim}
+          claiming={claimingReward}
+          onClaim={claimBattleReward}
+        />
+
         <div className="bg-card rounded-xl border border-border p-4 space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -480,7 +801,7 @@ export default function Battle() {
 
               <p className="text-[10px] text-muted-foreground">
                 {myDeckStats.hasDeck
-                  ? `${myDeckStats.cardCount} cards ready`
+                  ? `${myDeckStats.cardCount} cards ready · Power ${myDeckStats.power.toLocaleString()}`
                   : 'You can attack, but your default power is very low.'}
               </p>
             </div>
@@ -528,28 +849,28 @@ export default function Battle() {
           <div className="grid grid-cols-4 gap-2">
             <div className="bg-card rounded-lg border border-border p-2 text-center">
               <p className="text-lg font-bold font-display text-primary">
-                {profile.arena_points || 0}
+                {Number(myWeeklyProgress?.arena_points || profile.arena_points || 0).toLocaleString()}
               </p>
-              <p className="text-[9px] text-muted-foreground">Arena Pts</p>
+              <p className="text-[9px] text-muted-foreground">Weekly Pts</p>
             </div>
 
             <div className="bg-card rounded-lg border border-border p-2 text-center">
               <p className="text-lg font-bold font-display text-green-400">
-                {profile.wins || 0}
+                {myWeeklyProgress?.attack_wins ?? profile.wins ?? 0}
               </p>
               <p className="text-[9px] text-muted-foreground">Atk Wins</p>
             </div>
 
             <div className="bg-card rounded-lg border border-border p-2 text-center">
               <p className="text-lg font-bold font-display text-red-400">
-                {profile.losses || 0}
+                {myWeeklyProgress?.attack_losses ?? profile.losses ?? 0}
               </p>
               <p className="text-[9px] text-muted-foreground">Atk Loss</p>
             </div>
 
             <div className="bg-card rounded-lg border border-border p-2 text-center">
               <p className="text-lg font-bold font-display text-blue-400">
-                {profile.defense_wins || 0}
+                {myWeeklyProgress?.defense_wins ?? profile.defense_wins ?? 0}
               </p>
               <p className="text-[9px] text-muted-foreground">Def Wins</p>
             </div>
@@ -577,10 +898,7 @@ export default function Battle() {
                 </p>
 
                 <p className="text-xs text-muted-foreground">
-                  vs{' '}
-                  {result.opponent.display_name ||
-                    result.opponent.email ||
-                    'Opponent'}
+                  vs {getProfileName(result.opponent)}
                 </p>
               </div>
             </div>
@@ -589,26 +907,51 @@ export default function Battle() {
               <div className="rounded-lg bg-background/40 border border-border p-2 text-center">
                 <p className="text-muted-foreground">Your Battle Power</p>
                 <p className="font-bold">
-                  {result.attackerBattlePower?.toLocaleString?.() ||
-                    result.myTotal?.toLocaleString?.() ||
-                    '—'}
+                  {Number(result.attackerBattlePower || 0).toLocaleString()}
                 </p>
               </div>
 
               <div className="rounded-lg bg-background/40 border border-border p-2 text-center">
                 <p className="text-muted-foreground">Defender Power</p>
                 <p className="font-bold">
-                  {result.defenderBattlePower?.toLocaleString?.() ||
-                    result.oppTotal?.toLocaleString?.() ||
-                    '—'}
+                  {Number(result.defenderBattlePower || 0).toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <div className="rounded-lg bg-background/40 border border-border p-2 text-center">
+                <p className="text-muted-foreground">Your Points</p>
+                <p
+                  className={`font-bold ${
+                    result.attackerPointsDelta >= 0
+                      ? 'text-primary'
+                      : 'text-red-400'
+                  }`}
+                >
+                  {formatSigned(result.attackerPointsDelta)}
+                </p>
+              </div>
+
+              <div className="rounded-lg bg-background/40 border border-border p-2 text-center">
+                <p className="text-muted-foreground">Defender</p>
+                <p className="font-bold text-blue-300">
+                  {formatSigned(result.defenderPointsDelta)}
+                </p>
+              </div>
+
+              <div className="rounded-lg bg-background/40 border border-border p-2 text-center">
+                <p className="text-muted-foreground">Gold</p>
+                <p className="font-bold text-yellow-300">
+                  +{Number(result.goldReward || 0).toLocaleString()}
                 </p>
               </div>
             </div>
 
             <p className="text-xs text-center text-muted-foreground">
               {result.attackerWon
-                ? `You gained +${result.attackerPoints} arena points, +${result.goldReward} gold, and +${result.xpReward} XP.`
-                : `The defender gained +${result.defenderPoints} arena points. You gained +${result.xpReward} XP.`}
+                ? `You gained ${formatSigned(result.attackerPointsDelta)} weekly points, +${result.goldReward} gold, and +${result.xpReward} XP.`
+                : `You lost ${Math.abs(result.attackerPointsDelta)} weekly points. The defender gained ${formatSigned(result.defenderPointsDelta)} weekly points.`}
             </p>
 
             <Button
@@ -621,6 +964,12 @@ export default function Battle() {
             </Button>
           </div>
         )}
+
+        <WeeklyLeaderboard
+          progress={weeklyProgress}
+          profiles={profileById}
+          currentUserId={profile?.id}
+        />
 
         <div className="space-y-3">
           <div className="flex items-center justify-between">
@@ -644,36 +993,38 @@ export default function Battle() {
                   <div className="min-w-0">
                     <p className="font-display font-bold text-sm truncate">
                       #{index + 1}{' '}
-                      {opponent.display_name ||
-                        opponent.email ||
-                        'Unknown Player'}
+                      {getProfileName(opponent)}
                     </p>
 
                     <p className="text-[10px] text-muted-foreground">
                       Lv.{opponent.level || 1}
                       {opponent.faction ? ` · ${opponent.faction}` : ''}
                       {' · '}
-                      {(opponent.arena_points || 0).toLocaleString()} pts
+                      {Number(opponent.weeklyArenaPoints || 0).toLocaleString()} weekly pts
                     </p>
 
                     <p className="text-[10px] text-muted-foreground">
                       {hasDeck
-                        ? `${stats.cardCount} card active deck`
+                        ? `${stats.cardCount} card active deck · Power ${stats.power.toLocaleString()}`
                         : 'No active deck · low defense value'}
                     </p>
                   </div>
 
                   <div className="text-right">
                     <p className="text-[10px] text-muted-foreground">
-                      Possible Win
+                      {opponent.difficultyLabel}
                     </p>
 
                     <p className="font-bold text-primary text-sm">
-                      +{opponent.possibleWinPoints} pts
+                      Win +{opponent.possibleWinPoints}
+                    </p>
+
+                    <p className="text-[9px] text-red-300">
+                      Loss -{opponent.possibleLossPoints}
                     </p>
 
                     <p className="text-[9px] text-blue-300">
-                      Lose: defender +{opponent.possibleDefenderPoints}
+                      Def +{opponent.possibleDefenderPoints}
                     </p>
                   </div>
                 </div>
@@ -706,13 +1057,19 @@ export default function Battle() {
 
                 <Button
                   onClick={() => openBattle(opponent)}
-                  disabled={attackingId === opponent.id}
+                  disabled={
+                    attackingId === opponent.id ||
+                    battleSeasonEnded ||
+                    !battleSeason
+                  }
                   className="w-full gap-2"
                 >
                   <Target className="w-4 h-4" />
                   {attackingId === opponent.id
                     ? 'Attacking…'
-                    : `Attack · ${ATTACK_COST} ATK Energy`}
+                    : battleSeasonEnded
+                      ? 'Season Ended'
+                      : `Attack · ${ATTACK_COST} ATK Energy`}
                 </Button>
               </div>
             );
@@ -725,6 +1082,181 @@ export default function Battle() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function SeasonPanel({
+  season,
+  loading,
+  ended,
+  myRank,
+  myProgress,
+  rewards,
+  claimed,
+  claiming,
+  onClaim,
+}) {
+  return (
+    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs text-muted-foreground flex items-center gap-1">
+            <CalendarDays className="w-3.5 h-3.5" />
+            Weekly Battle Arena
+          </p>
+
+          <p className="font-display font-bold text-sm">
+            {loading
+              ? 'Loading season…'
+              : season?.name || 'No weekly season live'}
+          </p>
+
+          <p className="text-[10px] text-muted-foreground mt-1">
+            {season
+              ? ended
+                ? `Ended ${formatDateTime(season.ends_at)}`
+                : `Ends ${formatDateTime(season.ends_at)}`
+              : 'Run the weekly arena SQL to create a season.'}
+          </p>
+        </div>
+
+        <div className="text-right">
+          <p className="text-[10px] text-muted-foreground">Your Rank</p>
+          <p className="text-xl font-black text-primary">
+            {myRank ? `#${myRank}` : '—'}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-lg border border-border bg-background/40 p-2">
+          <Medal className="w-4 h-4 text-primary mx-auto mb-1" />
+          <p className="text-xs font-bold">
+            {Number(myProgress?.arena_points || 0).toLocaleString()}
+          </p>
+          <p className="text-[9px] text-muted-foreground">Weekly Pts</p>
+        </div>
+
+        <div className="rounded-lg border border-border bg-background/40 p-2">
+          <TrendingUp className="w-4 h-4 text-green-400 mx-auto mb-1" />
+          <p className="text-xs font-bold">
+            {Number(myProgress?.attack_wins || 0).toLocaleString()}
+          </p>
+          <p className="text-[9px] text-muted-foreground">Atk Wins</p>
+        </div>
+
+        <div className="rounded-lg border border-border bg-background/40 p-2">
+          <TrendingDown className="w-4 h-4 text-red-400 mx-auto mb-1" />
+          <p className="text-xs font-bold">
+            {Number(myProgress?.attack_losses || 0).toLocaleString()}
+          </p>
+          <p className="text-[9px] text-muted-foreground">Atk Losses</p>
+        </div>
+      </div>
+
+      {!!rewards?.length && (
+        <div className="rounded-lg border border-border bg-background/30 p-3 space-y-2">
+          <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+            <Gift className="w-3.5 h-3.5" />
+            Weekly Rewards
+          </p>
+
+          <div className="space-y-1">
+            {rewards.slice(0, 5).map((reward) => (
+              <div
+                key={reward.id}
+                className="flex items-start justify-between gap-2 text-[10px]"
+              >
+                <span className="font-bold text-foreground">
+                  #{reward.min_rank}
+                  {reward.max_rank !== reward.min_rank
+                    ? `-${reward.max_rank}`
+                    : ''}
+                </span>
+                <span className="text-muted-foreground text-right">
+                  {formatRewardJson(reward.reward_json)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {ended && (
+        <Button
+          onClick={onClaim}
+          disabled={claimed || claiming || !myProgress}
+          className="w-full gap-2"
+        >
+          <Gift className="w-4 h-4" />
+          {claimed
+            ? 'Weekly Reward Claimed'
+            : claiming
+              ? 'Claiming…'
+              : myProgress
+                ? 'Claim Weekly Arena Reward'
+                : 'No Weekly Reward Available'}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function WeeklyLeaderboard({ progress, profiles, currentUserId }) {
+  const topRows = (progress || []).slice(0, 10);
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-display font-bold text-primary flex items-center gap-2">
+          <Trophy className="w-4 h-4" />
+          Weekly Rankings
+        </p>
+
+        <p className="text-[10px] text-muted-foreground">
+          Top {topRows.length || 0}
+        </p>
+      </div>
+
+      {topRows.length ? (
+        <div className="space-y-2">
+          {topRows.map((row, index) => {
+            const player = profiles.get(row.user_id);
+            const isYou = row.user_id === currentUserId;
+
+            return (
+              <div
+                key={row.id}
+                className={`rounded-lg border p-2 flex items-center justify-between gap-3 ${
+                  isYou
+                    ? 'border-primary/50 bg-primary/10'
+                    : 'border-border bg-background/30'
+                }`}
+              >
+                <div className="min-w-0">
+                  <p className="text-xs font-bold truncate">
+                    #{index + 1} {getProfileName(player)}
+                    {isYou ? ' (You)' : ''}
+                  </p>
+
+                  <p className="text-[9px] text-muted-foreground">
+                    {row.attack_wins}W / {row.attack_losses}L · Def {row.defense_wins}W
+                  </p>
+                </div>
+
+                <p className="text-sm font-black text-primary">
+                  {Number(row.arena_points || 0).toLocaleString()}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground text-center py-3">
+          No weekly battle points yet. Win battles to enter the rankings.
+        </p>
+      )}
     </div>
   );
 }
