@@ -28,6 +28,10 @@ dist-ssr
 *.sw?
 
 .env
+.env.local
+.env.*.local
+.vscode
+supasbase/.temp/
 .vite
 
 art_concepts_with_lore/
