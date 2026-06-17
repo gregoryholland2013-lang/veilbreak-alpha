@@ -2,6 +2,13 @@ import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQueryClient } from '@tanstack/react-query';
 import {
+  Layers,
+  Search,
+  Sparkles,
+  Trophy,
+  Shield,
+} from 'lucide-react';
+import {
   useCards,
   usePlayerCards,
   useUpdatePlayerCard,
@@ -10,7 +17,6 @@ import {
 } from '@/hooks/useGameData';
 import GameCard from '@/components/game/GameCard';
 import CardDetailModal from '@/components/game/CardDetailModal';
-import PageHeader from '@/components/game/PageHeader';
 import {
   Select,
   SelectContent,
@@ -19,6 +25,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
+
+const COLLECTION_BG =
+  'https://media.base44.com/images/public/69e667952dab314dabbd3859/2b48825a0_generated_image.png';
 
 const FACTION_OPTIONS = [
   { value: 'all', label: 'All Factions', icon: '🌌' },
@@ -39,8 +48,6 @@ const RARITY_OPTIONS = [
   { value: 'transcendent', label: 'Transcendent' },
   { value: 'eclipse', label: 'Eclipse' },
   { value: 'singularity', label: 'Singularity' },
-
-  // Legacy support so old data does not disappear while we clean Supabase.
   { value: 'common', label: 'Common' },
   { value: 'normal', label: 'Normal' },
   { value: 'high_normal', label: 'High Normal' },
@@ -56,26 +63,19 @@ const RARITY_RANK = {
   vessel: 1,
   common: 1,
   normal: 1,
-
   awakened: 2,
   high_normal: 2,
-
   ascendant: 3,
   rare: 3,
-
   exalted: 4,
   super_rare: 4,
-
   mythic: 5,
   super_super_rare: 5,
   epic: 5,
-
   transcendent: 6,
   legendary: 6,
-
   eclipse: 7,
   ultra_rare: 7,
-
   singularity: 8,
 };
 
@@ -160,6 +160,28 @@ function getOwnedCardPower(playerCard, card) {
   );
 }
 
+function PageGlow() {
+  return (
+    <div className="pointer-events-none absolute inset-0 opacity-80">
+      <div className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-primary/20 blur-3xl" />
+      <div className="absolute top-40 -right-24 w-96 h-96 rounded-full bg-blue-700/20 blur-3xl" />
+      <div className="absolute bottom-0 left-1/3 w-[520px] h-[520px] rounded-full bg-yellow-500/10 blur-3xl" />
+    </div>
+  );
+}
+
+function HeroStat({ icon: Icon, label, value }) {
+  return (
+    <div className="rounded-2xl border border-border bg-card/80 p-3">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Icon className="w-4 h-4 text-primary" />
+        {label}
+      </div>
+      <p className="font-display text-xl font-black mt-1">{value}</p>
+    </div>
+  );
+}
+
 export default function Collection() {
   const queryClient = useQueryClient();
 
@@ -224,6 +246,15 @@ export default function Collection() {
     });
   }, [enrichedCards, factionFilter, rarityFilter]);
 
+  const highestPower = enrichedCards[0]?.power || 0;
+  const uniqueLines = useMemo(() => {
+    return new Set(
+      enrichedCards.map(({ card }) =>
+        String(card.card_line || card.name || '').toLowerCase().trim()
+      )
+    ).size;
+  }, [enrichedCards]);
+
   const handleProtectionUpdated = (updatedCard) => {
     const nextCard = Array.isArray(updatedCard) ? updatedCard[0] : updatedCard;
 
@@ -281,100 +312,149 @@ export default function Collection() {
   };
 
   return (
-    <div className="max-w-lg mx-auto space-y-4">
-      <PageHeader title="Collection" subtitle="Your owned cards" />
+    <div className="relative min-h-screen overflow-hidden bg-background pb-24">
+      <PageGlow />
 
-      <div className="px-4 pb-6 space-y-4">
-        <div className="rounded-2xl border border-border/70 bg-card/70 p-3 space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="font-display text-sm font-black text-primary">
-                Card Vault
-              </p>
-              <p className="text-[11px] text-muted-foreground">
-                {filtered.length} shown · {enrichedCards.length} owned
-              </p>
-            </div>
+      <div className="relative max-w-7xl mx-auto p-4 md:p-6 space-y-6">
+        <section className="relative overflow-hidden rounded-3xl border border-primary/30 bg-card shadow-2xl">
+          <img
+            src={COLLECTION_BG}
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover object-center opacity-30"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-background via-background/80 to-background/30" />
+          <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent" />
 
-            <div className="text-right">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                Sorted by
-              </p>
-              <p className="text-xs font-bold text-foreground">Power</p>
-            </div>
-          </div>
+          <div className="relative p-6 md:p-8">
+            <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+              <div>
+                <div className="flex items-center gap-2 text-primary uppercase tracking-[0.3em] text-xs font-bold">
+                  <Layers className="w-4 h-4" />
+                  Card Vault
+                </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <Select value={factionFilter} onValueChange={setFactionFilter}>
-              <SelectTrigger className="h-9 text-xs">
-                <SelectValue placeholder="All Factions" />
-              </SelectTrigger>
+                <h1 className="font-display text-4xl md:text-6xl font-black mt-3 text-primary text-glow-gold">
+                  COLLECTION
+                </h1>
 
-              <SelectContent>
-                {FACTION_OPTIONS.map((faction) => (
-                  <SelectItem key={faction.value} value={faction.value}>
-                    {faction.icon} {faction.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                <p className="text-muted-foreground mt-3 max-w-3xl">
+                  Browse your owned cards, inspect Veil Marks, and manage your strongest units.
+                </p>
+              </div>
 
-            <Select value={rarityFilter} onValueChange={setRarityFilter}>
-              <SelectTrigger className="h-9 text-xs">
-                <SelectValue placeholder="All Rarity" />
-              </SelectTrigger>
-
-              <SelectContent>
-                {RARITY_OPTIONS.map((rarity) => (
-                  <SelectItem key={rarity.value} value={rarity.value}>
-                    {rarity.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {factionFilter !== 'all' && (
-            <p className="text-[11px] text-muted-foreground">
-              Filtered by {getFactionIcon(factionFilter)}{' '}
-              {getFactionLabel(factionFilter)}
-            </p>
-          )}
-        </div>
-
-        <div className="grid grid-cols-2 gap-4 justify-items-center">
-          <AnimatePresence>
-            {filtered.map(({ card, playerCard }) => (
-              <motion.div
-                key={playerCard.id}
-                layout
-                initial={{ opacity: 0, scale: 0.96 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.96 }}
-              >
-                <GameCard
-                  card={card}
-                  playerCard={playerCard}
-                  size="md"
-                  showProtectionBadge={false}
-                  onClick={() => {
-                    setSelectedCard(card);
-                    setSelectedPlayerCard(playerCard);
-                  }}
+              <div className="grid grid-cols-3 gap-3 lg:min-w-[360px]">
+                <HeroStat
+                  icon={Layers}
+                  label="Owned"
+                  value={enrichedCards.length.toLocaleString()}
                 />
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
-
-        {filtered.length === 0 && (
-          <div className="text-center py-12 text-muted-foreground">
-            <p className="font-display text-lg text-primary">No cards found</p>
-            <p className="text-sm mt-1">
-              Try changing your faction or rarity filter.
-            </p>
+                <HeroStat
+                  icon={Trophy}
+                  label="Best Power"
+                  value={highestPower.toLocaleString()}
+                />
+                <HeroStat
+                  icon={Sparkles}
+                  label="Lines"
+                  value={uniqueLines.toLocaleString()}
+                />
+              </div>
+            </div>
           </div>
-        )}
+        </section>
+
+        <section className="rounded-3xl border border-primary/20 bg-card/90 shadow-2xl overflow-hidden">
+          <div className="p-5 md:p-6 border-b border-border bg-primary/5">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-primary uppercase tracking-[0.25em] text-xs font-bold">
+                  <Search className="w-4 h-4" />
+                  Your Owned Cards
+                </div>
+
+                <h2 className="font-display text-2xl md:text-3xl font-black text-primary mt-2">
+                  Card Vault
+                </h2>
+
+                <p className="text-sm text-muted-foreground mt-2">
+                  {filtered.length} shown · {enrichedCards.length} owned
+                  {factionFilter !== 'all'
+                    ? ` · ${getFactionIcon(factionFilter)} ${getFactionLabel(
+                        factionFilter
+                      )}`
+                    : ''}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 w-full lg:w-[420px]">
+                <Select value={factionFilter} onValueChange={setFactionFilter}>
+                  <SelectTrigger className="h-10 text-xs">
+                    <SelectValue placeholder="All Factions" />
+                  </SelectTrigger>
+
+                  <SelectContent>
+                    {FACTION_OPTIONS.map((faction) => (
+                      <SelectItem key={faction.value} value={faction.value}>
+                        {faction.icon} {faction.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Select value={rarityFilter} onValueChange={setRarityFilter}>
+                  <SelectTrigger className="h-10 text-xs">
+                    <SelectValue placeholder="All Rarity" />
+                  </SelectTrigger>
+
+                  <SelectContent>
+                    {RARITY_OPTIONS.map((rarity) => (
+                      <SelectItem key={rarity.value} value={rarity.value}>
+                        {rarity.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-5 md:p-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5 justify-items-center">
+              <AnimatePresence>
+                {filtered.map(({ card, playerCard }) => (
+                  <motion.div
+                    key={playerCard.id}
+                    layout
+                    initial={{ opacity: 0, scale: 0.96 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.96 }}
+                  >
+                    <GameCard
+                      card={card}
+                      playerCard={playerCard}
+                      size="md"
+                      showProtectionBadge={false}
+                      onClick={() => {
+                        setSelectedCard(card);
+                        setSelectedPlayerCard(playerCard);
+                      }}
+                    />
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+
+            {filtered.length === 0 && (
+              <div className="text-center py-12 text-muted-foreground">
+                <Shield className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                <p className="font-display text-lg text-primary">No cards found</p>
+                <p className="text-sm mt-1">
+                  Try changing your faction or rarity filter.
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
 
         <CardDetailModal
           card={selectedCard}

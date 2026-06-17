@@ -3,7 +3,6 @@ import { Outlet } from 'react-router-dom';
 import NavBar from './NavBar';
 import PlayerBar from './PlayerBar';
 import ChooseFaction from '@/components/auth/ChooseFaction';
-import TutorialOverlay from '@/components/tutorial/TutorialOverlay';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 import { LogOut, X, Zap, Sword, Shield } from 'lucide-react';
@@ -71,9 +70,6 @@ export default function GameLayout() {
           wins: 0,
           losses: 0,
           quests_completed: 0,
-          tutorial_step: 1,
-          tutorial_completed: false,
-          tutorial_rewards_claimed: [],
           stats_regen_at: now,
           created_at: now,
           updated_at: now,
@@ -277,22 +273,16 @@ export default function GameLayout() {
         </div>
       )}
 
-      <TutorialOverlay
-        profile={activeProfile}
-        onProfileUpdate={(updatedProfile) => {
-          setLocalProfile(updatedProfile);
-          queryClient.invalidateQueries({ queryKey: ['playerProfile'] });
-          queryClient.invalidateQueries({ queryKey: ['profile'] });
-        }}
-      />
-
       <PlayerBar
         profile={activeProfile}
         isLoading={isLoading}
         onProfileClick={() => setProfileOpen(true)}
       />
 
-      <main className="flex-1 pb-20 overflow-y-auto">
+      {/* Let each page control its own width.
+          This restores wide desktop pages like Quests while keeping mobile-first pages
+          constrained by their own max-w-lg wrappers. */}
+      <main className="flex-1 w-full pb-20 overflow-y-auto">
         <Outlet context={{ profile: activeProfile }} />
       </main>
 

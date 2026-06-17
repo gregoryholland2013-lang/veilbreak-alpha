@@ -1003,219 +1003,335 @@ export default function Enhance() {
   }, [enhancedCardsForPicker]);
 
   return (
-    <div className="max-w-lg mx-auto">
-      <PageHeader title="Enhance" />
+    <div className="relative min-h-screen overflow-hidden bg-background pb-24">
+      <div className="pointer-events-none absolute inset-0 opacity-80">
+        <div className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-primary/20 blur-3xl" />
+        <div className="absolute top-40 -right-24 w-96 h-96 rounded-full bg-purple-700/20 blur-3xl" />
+        <div className="absolute bottom-0 left-1/3 w-[520px] h-[520px] rounded-full bg-yellow-500/10 blur-3xl" />
+      </div>
 
-      <div className="px-4 py-4 space-y-4">
-        {profile && (
-          <div
-            className={`rounded-xl border p-3 flex items-center gap-3 ${
-              atCapacity
-                ? 'border-destructive/50 bg-destructive/5'
-                : 'border-border bg-card'
-            }`}
-          >
-            <div className="flex-1">
-              <div className="flex justify-between text-xs mb-1.5">
-                <span className="text-muted-foreground">Card Slots</span>
-                <span
-                  className={`font-bold ${
-                    atCapacity ? 'text-destructive' : 'text-foreground'
-                  }`}
-                >
-                  {playerCards.length} / {capacity}
-                </span>
+      <div className="relative max-w-7xl mx-auto p-4 md:p-6 space-y-6">
+        <section className="relative overflow-hidden rounded-3xl border border-primary/30 bg-card shadow-2xl">
+          <img
+            src="https://media.base44.com/images/public/69e667952dab314dabbd3859/2b48825a0_generated_image.png"
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover object-center opacity-30"
+          />
+
+          <div className="absolute inset-0 bg-gradient-to-r from-background via-background/80 to-background/30" />
+          <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent" />
+
+          <div className="relative p-6 md:p-8">
+            <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+              <div>
+                <div className="flex items-center gap-2 text-primary uppercase tracking-[0.3em] text-xs font-bold">
+                  <Sparkles className="w-4 h-4" />
+                  Card Forge
+                </div>
+
+                <h1 className="font-display text-4xl md:text-6xl font-black mt-3 text-primary text-glow-gold">
+                  ENHANCE
+                </h1>
+
+                <p className="text-muted-foreground mt-3 max-w-3xl">
+                  Level cards, evolve Core Forms, and upgrade skills while keeping rank and form progression clear.
+                </p>
               </div>
 
-              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all ${
-                    atCapacity ? 'bg-destructive' : 'bg-primary'
-                  }`}
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      (playerCards.length / capacity) * 100
-                    )}%`,
-                  }}
-                />
-              </div>
+              <div className="grid grid-cols-3 gap-3 lg:min-w-[360px]">
+                <div className="rounded-2xl border border-border bg-card/80 p-3">
+                  <div className="text-xs text-muted-foreground">Card Slots</div>
+                  <p className="font-display text-xl font-black mt-1">
+                    {playerCards.length}/{capacity}
+                  </p>
+                </div>
 
-              <p className="text-[10px] text-muted-foreground mt-1">
-                Level up to increase your card capacity +10 per level
-              </p>
+                <div className="rounded-2xl border border-border bg-card/80 p-3">
+                  <div className="text-xs text-muted-foreground">Skill Shards</div>
+                  <p className="font-display text-xl font-black mt-1 text-blue-200">
+                    {Number(skillShards || 0).toLocaleString()}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-card/80 p-3">
+                  <div className="text-xs text-muted-foreground">Mode</div>
+                  <p className="font-display text-xl font-black mt-1 capitalize text-primary">
+                    {tab}
+                  </p>
+                </div>
+              </div>
             </div>
+          </div>
+        </section>
 
-            {atCapacity && (
-              <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+          <aside className="xl:col-span-4 space-y-6">
+            {profile && (
+              <section
+                className={`rounded-3xl border shadow-2xl overflow-hidden ${
+                  atCapacity
+                    ? 'border-destructive/50 bg-destructive/10'
+                    : 'border-primary/20 bg-card/90'
+                }`}
+              >
+                <div className="p-5 border-b border-border bg-primary/5">
+                  <div className="flex items-center gap-2 text-primary uppercase tracking-[0.25em] text-xs font-bold">
+                    <Sparkles className="w-4 h-4" />
+                    Capacity
+                  </div>
+
+                  <h2 className="font-display text-2xl font-black text-primary mt-2">
+                    Card Slots
+                  </h2>
+                </div>
+
+                <div className="p-5">
+                  <div className="flex justify-between text-xs mb-2">
+                    <span className="text-muted-foreground">Owned Cards</span>
+                    <span
+                      className={`font-bold ${
+                        atCapacity ? 'text-destructive' : 'text-foreground'
+                      }`}
+                    >
+                      {playerCards.length} / {capacity}
+                    </span>
+                  </div>
+
+                  <div className="h-3 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        atCapacity ? 'bg-destructive' : 'bg-gradient-to-r from-primary to-purple-400'
+                      }`}
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          (playerCards.length / capacity) * 100
+                        )}%`,
+                      }}
+                    />
+                  </div>
+
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Level up to increase your card capacity +10 per level.
+                  </p>
+
+                  {atCapacity && (
+                    <div className="mt-4 rounded-2xl border border-destructive/40 bg-destructive/10 p-3 flex gap-2 text-sm text-destructive">
+                      <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                      Your card storage is full.
+                    </div>
+                  )}
+                </div>
+              </section>
             )}
-          </div>
-        )}
 
-        <div className="rounded-xl border border-blue-400/30 bg-blue-400/10 p-3 space-y-1">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-black text-blue-300 flex items-center gap-2">
-              <Sparkles className="w-4 h-4" />
-              Skill Shards
-            </p>
+            <section className="rounded-3xl border border-blue-400/30 bg-blue-400/10 shadow-2xl overflow-hidden">
+              <div className="p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-black text-blue-300 flex items-center gap-2 uppercase tracking-[0.25em]">
+                    <Sparkles className="w-4 h-4" />
+                    Skill Shards
+                  </p>
 
-            <p className="text-sm font-black text-blue-200">
-              {Number(skillShards || 0).toLocaleString()}
-            </p>
-          </div>
+                  <p className="text-xl font-black text-blue-200">
+                    {Number(skillShards || 0).toLocaleString()}
+                  </p>
+                </div>
 
-          <p className="text-[11px] text-muted-foreground">
-            Skill upgrades cost current skill level ×{' '}
-            {SKILL_SHARD_COST_MULTIPLIER} Skill Shards. Skill upgrades are
-            guaranteed during Beta.
-          </p>
+                <p className="text-sm text-muted-foreground mt-3 leading-relaxed">
+                  Skill upgrades cost current skill level ×{' '}
+                  {SKILL_SHARD_COST_MULTIPLIER} Skill Shards. Skill upgrades are
+                  guaranteed during Beta.
+                </p>
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-primary/20 bg-card/90 shadow-2xl overflow-hidden">
+              <div className="p-5 border-b border-border bg-primary/5">
+                <p className="text-xs font-bold text-primary uppercase tracking-[0.25em]">
+                  Progression Rules
+                </p>
+                <h2 className="font-display text-2xl font-black text-primary mt-2">
+                  Core Forms
+                </h2>
+              </div>
+
+              <div className="p-5 space-y-4">
+                <div className="rounded-2xl border border-border bg-background/50 p-4">
+                  <p className="text-xs font-bold text-primary">
+                    Enhancement Caps
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+                    Base, Base+, and Base++ cards max at Lv.{BASE_MAX_LEVEL}. Final
+                    Form cards max at Lv.{FINAL_FORM_MAX_LEVEL}.
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-primary/30 bg-primary/10 p-4">
+                  <p className="text-xs font-bold text-primary">
+                    Target-Driven Evolution
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+                    The selected target always evolves one form forward. Consumed
+                    same-line cards contribute stats only. Base becomes Base+, Base+
+                    becomes Base++, and Base++ becomes Final Form.
+                  </p>
+                </div>
+              </div>
+            </section>
+          </aside>
+
+          <main className="xl:col-span-8">
+            <section className="rounded-3xl border border-primary/20 bg-card/90 shadow-2xl overflow-hidden">
+              <div className="p-5 md:p-6 border-b border-border bg-primary/5">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 text-primary uppercase tracking-[0.25em] text-xs font-bold">
+                      <Sparkles className="w-4 h-4" />
+                      Forge Actions
+                    </div>
+
+                    <h2 className="font-display text-2xl md:text-3xl font-black text-primary mt-2">
+                      Choose Upgrade Path
+                    </h2>
+
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Pick a card, then choose the material or upgrade path.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-5 md:p-6">
+                <AnimatePresence mode="wait">
+                  {step === 'pick' && (
+                    <motion.div
+                      key="pick"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                    >
+                      <Tabs value={tab} onValueChange={setTab}>
+                        <TabsList className="w-full mb-5 bg-background/60 border border-border">
+                          <TabsTrigger value="enhance" className="flex-1">
+                            ⚡ Enhance
+                          </TabsTrigger>
+                          <TabsTrigger value="evolve" className="flex-1">
+                            🌟 Evolve
+                          </TabsTrigger>
+                          <TabsTrigger value="skill" className="flex-1">
+                            🔷 Skill
+                          </TabsTrigger>
+                        </TabsList>
+
+                        <TabsContent value="enhance">
+                          <EnhanceCardPicker
+                            enrichedCards={enhancedCardsForPicker}
+                            onSelect={(item) => handleSelectTarget(item, 'enhance')}
+                            title="Choose a Card to Enhance"
+                            subtitle="Sort, search, and filter your cards before choosing a target."
+                            defaultSort="total_desc"
+                          />
+                        </TabsContent>
+
+                        <TabsContent value="evolve">
+                          <EnhanceCardPicker
+                            enrichedCards={enhancedCardsForPicker}
+                            onSelect={(item) => handleSelectTarget(item, 'evolve')}
+                            title="Choose a Card to Evolve"
+                            subtitle="Select the target card first. It will evolve one stage forward."
+                            defaultSort="evolution_asc"
+                          />
+                        </TabsContent>
+
+                        <TabsContent value="skill">
+                          <EnhanceCardPicker
+                            enrichedCards={skillCardsForPicker}
+                            onSelect={(item) => handleSelectTarget(item, 'skill')}
+                            title="Choose a Skill to Upgrade"
+                            subtitle="Only cards with skills can use Skill Shards. Skill upgrades are guaranteed during Beta."
+                            defaultSort="total_desc"
+                          />
+                        </TabsContent>
+                      </Tabs>
+                    </motion.div>
+                  )}
+
+                  {step === 'fodder' && selectedTarget && (
+                    <motion.div
+                      key="fodder"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                    >
+                      <FodderPicker
+                        target={{
+                          ...selectedTarget,
+                          maxLevel: getCardMaxLevel(
+                            selectedTarget.playerCard,
+                            selectedTarget.card
+                          ),
+                          maxed: isCardMaxed(
+                            selectedTarget.playerCard,
+                            selectedTarget.card
+                          ),
+                        }}
+                        enrichedCards={consumableCardsForPicker}
+                        onConfirm={handleEnhanceConfirm}
+                        onBack={resetFlow}
+                        disabled={processing}
+                      />
+                    </motion.div>
+                  )}
+
+                  {step === 'evolve' && selectedTarget && (
+                    <motion.div
+                      key="evolve"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                    >
+                      <EvolvePanel
+                        target={{
+                          ...selectedTarget,
+                          maxLevel: getCardMaxLevel(
+                            selectedTarget.playerCard,
+                            selectedTarget.card
+                          ),
+                          maxed: isCardMaxed(
+                            selectedTarget.playerCard,
+                            selectedTarget.card
+                          ),
+                        }}
+                        enrichedCards={consumableCardsForPicker}
+                        onEvolve={handleEvolve}
+                        onBack={resetFlow}
+                        disabled={processing}
+                      />
+                    </motion.div>
+                  )}
+
+                  {step === 'skill' && selectedTarget && (
+                    <motion.div
+                      key="skill"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                    >
+                      <SkillUpPanel
+                        target={selectedTarget}
+                        skillShards={skillShards}
+                        onUpgrade={handleSkillUpgrade}
+                        onBack={resetFlow}
+                        disabled={processing}
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </section>
+          </main>
         </div>
-
-        <div className="rounded-xl border border-border bg-card p-3 space-y-1">
-          <p className="text-xs font-bold text-primary">Enhancement Caps</p>
-          <p className="text-[11px] text-muted-foreground">
-            Base, Base+, and Base++ cards max at Lv.{BASE_MAX_LEVEL}. Final
-            Form cards max at Lv.{FINAL_FORM_MAX_LEVEL}. Maxed cards no longer
-            gain XP or stats.
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 space-y-1">
-          <p className="text-xs font-bold text-primary">
-            Target-Driven Evolution
-          </p>
-          <p className="text-[11px] text-muted-foreground">
-            The selected target always evolves one form forward. Consumed
-            same-line cards contribute stats only. Base becomes Base+, Base+
-            becomes Base++, and Base++ becomes Final Form.
-          </p>
-        </div>
-
-        <AnimatePresence mode="wait">
-          {step === 'pick' && (
-            <motion.div
-              key="pick"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-            >
-              <Tabs value={tab} onValueChange={setTab}>
-                <TabsList className="w-full mb-4">
-                  <TabsTrigger value="enhance" className="flex-1">
-                    ⚡ Enhance
-                  </TabsTrigger>
-                  <TabsTrigger value="evolve" className="flex-1">
-                    🌟 Evolve
-                  </TabsTrigger>
-                  <TabsTrigger value="skill" className="flex-1">
-                    🔷 Skill
-                  </TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="enhance">
-                  <EnhanceCardPicker
-                    enrichedCards={enhancedCardsForPicker}
-                    onSelect={(item) => handleSelectTarget(item, 'enhance')}
-                    title="Choose a Card to Enhance"
-                    subtitle="Sort, search, and filter your cards before choosing a target."
-                    defaultSort="total_desc"
-                  />
-                </TabsContent>
-
-                <TabsContent value="evolve">
-                  <EnhanceCardPicker
-                    enrichedCards={enhancedCardsForPicker}
-                    onSelect={(item) => handleSelectTarget(item, 'evolve')}
-                    title="Choose a Card to Evolve"
-                    subtitle="Select the target card first. It will evolve one stage forward."
-                    defaultSort="evolution_asc"
-                  />
-                </TabsContent>
-
-                <TabsContent value="skill">
-                  <EnhanceCardPicker
-                    enrichedCards={skillCardsForPicker}
-                    onSelect={(item) => handleSelectTarget(item, 'skill')}
-                    title="Choose a Skill to Upgrade"
-                    subtitle="Only cards with skills can use Skill Shards. Skill upgrades are guaranteed during Beta."
-                    defaultSort="total_desc"
-                  />
-                </TabsContent>
-              </Tabs>
-            </motion.div>
-          )}
-
-          {step === 'fodder' && selectedTarget && (
-            <motion.div
-              key="fodder"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-            >
-              <FodderPicker
-                target={{
-                  ...selectedTarget,
-                  maxLevel: getCardMaxLevel(
-                    selectedTarget.playerCard,
-                    selectedTarget.card
-                  ),
-                  maxed: isCardMaxed(
-                    selectedTarget.playerCard,
-                    selectedTarget.card
-                  ),
-                }}
-                enrichedCards={consumableCardsForPicker}
-                onConfirm={handleEnhanceConfirm}
-                onBack={resetFlow}
-                disabled={processing}
-              />
-            </motion.div>
-          )}
-
-          {step === 'evolve' && selectedTarget && (
-            <motion.div
-              key="evolve"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-            >
-              <EvolvePanel
-                target={{
-                  ...selectedTarget,
-                  maxLevel: getCardMaxLevel(
-                    selectedTarget.playerCard,
-                    selectedTarget.card
-                  ),
-                  maxed: isCardMaxed(
-                    selectedTarget.playerCard,
-                    selectedTarget.card
-                  ),
-                }}
-                enrichedCards={consumableCardsForPicker}
-                onEvolve={handleEvolve}
-                onBack={resetFlow}
-                disabled={processing}
-              />
-            </motion.div>
-          )}
-
-          {step === 'skill' && selectedTarget && (
-            <motion.div
-              key="skill"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-            >
-              <SkillUpPanel
-                target={selectedTarget}
-                skillShards={skillShards}
-                onUpgrade={handleSkillUpgrade}
-                onBack={resetFlow}
-                disabled={processing}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
     </div>
   );

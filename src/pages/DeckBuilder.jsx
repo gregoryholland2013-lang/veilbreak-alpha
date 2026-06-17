@@ -9,18 +9,23 @@ import {
   Shield,
   Heart,
   Search,
+  X,
+  BookOpen,
+  Trophy,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useCards, usePlayerCards, useDecks } from '@/hooks/useGameData';
 import GameCard from '@/components/game/GameCard';
-import PageHeader from '@/components/game/PageHeader';
 import { supabase } from '@/lib/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Lock } from 'lucide-react';
 
 const MAX_DECK_SIZE = 5;
+
+const DECK_BG =
+  'https://media.base44.com/images/public/69e667952dab314dabbd3859/2b48825a0_generated_image.png';
 
 async function getAuthUser() {
   const {
@@ -29,7 +34,6 @@ async function getAuthUser() {
   } = await supabase.auth.getUser();
 
   if (error) throw error;
-
   return user;
 }
 
@@ -86,6 +90,50 @@ function getStageLabel(playerCard) {
   if (count === 1) return 'Base+';
 
   return 'Base';
+}
+
+function getCardImage(card) {
+  return card?.image_url || card?.artwork_url || card?.image || '';
+}
+
+function PageGlow() {
+  return (
+    <div className="pointer-events-none absolute inset-0 opacity-80">
+      <div className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-primary/20 blur-3xl" />
+      <div className="absolute top-40 -right-24 w-96 h-96 rounded-full bg-blue-700/20 blur-3xl" />
+      <div className="absolute bottom-0 left-1/3 w-[520px] h-[520px] rounded-full bg-yellow-500/10 blur-3xl" />
+    </div>
+  );
+}
+
+function HeroStat({ icon: Icon, label, value }) {
+  return (
+    <div className="rounded-2xl border border-border bg-card/80 p-3">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Icon className="w-4 h-4 text-primary" />
+        {label}
+      </div>
+      <p className="font-display text-xl font-black mt-1">{value}</p>
+    </div>
+  );
+}
+
+function MiniStat({ icon: Icon, label, value, valueClass = 'text-foreground' }) {
+  return (
+    <div className="rounded-2xl border border-border bg-background/50 p-3 text-center">
+      <Icon className="w-4 h-4 text-primary mx-auto mb-1" />
+      <p className={`font-display text-lg font-black ${valueClass}`}>{value}</p>
+      <p className="text-[10px] text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
+function QuestPanel({ children, className = '' }) {
+  return (
+    <section className={`rounded-3xl border border-primary/20 bg-card/90 shadow-2xl overflow-hidden ${className}`}>
+      {children}
+    </section>
+  );
 }
 
 export default function DeckBuilder() {
@@ -165,14 +213,13 @@ export default function DeckBuilder() {
           total: sum.total + item.stats.total,
         };
       },
-      {
-        attack: 0,
-        defense: 0,
-        hp: 0,
-        total: 0,
-      }
+      { attack: 0, defense: 0, hp: 0, total: 0 }
     );
   }, [selectedCards]);
+
+  const activeDeck = useMemo(() => {
+    return decks.find((deck) => deck.is_active) || null;
+  }, [decks]);
 
   const resetForm = () => {
     setDeckName('');
@@ -193,6 +240,10 @@ export default function DeckBuilder() {
 
       return [...prev, pcId];
     });
+  };
+
+  const removeSelectedCard = (pcId) => {
+    setSelectedIds((prev) => prev.filter((id) => id !== pcId));
   };
 
   const saveDeck = async () => {
@@ -239,7 +290,6 @@ export default function DeckBuilder() {
           .single();
 
         if (error) throw error;
-
         toast.success(`${data.name} updated!`);
       } else {
         const shouldBeActive = decks.length === 0;
@@ -290,27 +340,20 @@ export default function DeckBuilder() {
 
       const { error: deactivateError } = await supabase
         .from('decks')
-        .update({
-          is_active: false,
-          updated_at: now,
-        })
+        .update({ is_active: false, updated_at: now })
         .eq('user_id', user.id);
 
       if (deactivateError) throw deactivateError;
 
       const { error: activateError } = await supabase
         .from('decks')
-        .update({
-          is_active: true,
-          updated_at: now,
-        })
+        .update({ is_active: true, updated_at: now })
         .eq('id', deck.id)
         .eq('user_id', user.id);
 
       if (activateError) throw activateError;
 
       await queryClient.invalidateQueries({ queryKey: ['decks'] });
-
       toast.success(`${deck.name} is now active!`);
     } catch (error) {
       console.error(error);
@@ -353,9 +396,7 @@ export default function DeckBuilder() {
     setDeckName(deck.name || '');
 
     const validPlayerCardIds = new Set(enriched.map((item) => item.playerCard.id));
-
     const deckIds = Array.isArray(deck.card_ids) ? deck.card_ids : [];
-
     const normalizedIds = deckIds.filter((id) => validPlayerCardIds.has(id));
 
     setSelectedIds(normalizedIds);
@@ -364,223 +405,380 @@ export default function DeckBuilder() {
   const isLoading = cardsLoading || playerCardsLoading || decksLoading;
 
   return (
-    <div className="max-w-lg mx-auto space-y-5">
-      <PageHeader title="Deck Builder" />
+    <div className="relative min-h-screen overflow-hidden bg-background pb-24">
+      <PageGlow />
 
-      <div className="px-4 space-y-5">
-        {isLoading && (
-          <div className="rounded-xl border border-border bg-card p-4 text-center text-sm text-muted-foreground">
-            Loading deck builder…
-          </div>
-        )}
-
-        {!isLoading && enriched.length === 0 && (
-          <div className="rounded-xl border border-border bg-card p-5 text-center text-sm text-muted-foreground">
-            No cards available. Summon cards first.
-          </div>
-        )}
-
-        <div className="bg-card rounded-xl border border-border p-4 space-y-3">
-          <Input
-            placeholder="Deck name..."
-            value={deckName}
-            onChange={(e) => setDeckName(e.target.value)}
-            className="font-display"
+      <div className="relative max-w-7xl mx-auto p-4 md:p-6 space-y-6">
+        <section className="relative overflow-hidden rounded-3xl border border-primary/30 bg-card shadow-2xl">
+          <img
+            src={DECK_BG}
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover object-center opacity-30"
           />
+          <div className="absolute inset-0 bg-gradient-to-r from-background via-background/80 to-background/30" />
+          <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent" />
 
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">
-              Selected: {selectedIds.length} / {MAX_DECK_SIZE}
-            </p>
+          <div className="relative p-6 md:p-8">
+            <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+              <div>
+                <div className="flex items-center gap-2 text-primary uppercase tracking-[0.3em] text-xs font-bold">
+                  <BookOpen className="w-4 h-4" />
+                  Deck Forge
+                </div>
 
-            <p className="text-xs text-primary font-bold">
-              Power {selectedStats.total}
-            </p>
-          </div>
+                <h1 className="font-display text-4xl md:text-6xl font-black mt-3 text-primary text-glow-gold">
+                  DECK BUILDER
+                </h1>
 
-          {selectedIds.length > 0 && (
-            <div className="grid grid-cols-3 gap-2 rounded-xl border border-border bg-muted/20 p-3 text-xs">
-              <div className="flex items-center gap-1 text-red-400 font-bold">
-                <Sword className="w-3.5 h-3.5" />
-                {selectedStats.attack}
+                <p className="text-muted-foreground mt-3 max-w-3xl">
+                  Build a five-card battle lineup, set an active deck, and prepare for Arena and Holy War combat.
+                </p>
               </div>
 
-              <div className="flex items-center gap-1 text-blue-400 font-bold">
-                <Shield className="w-3.5 h-3.5" />
-                {selectedStats.defense}
-              </div>
-
-              <div className="flex items-center gap-1 text-green-400 font-bold">
-                <Heart className="w-3.5 h-3.5" />
-                {selectedStats.hp}
+              <div className="grid grid-cols-3 gap-3 lg:min-w-[360px]">
+                <HeroStat
+                  icon={Check}
+                  label="Selected"
+                  value={`${selectedIds.length}/${MAX_DECK_SIZE}`}
+                />
+                <HeroStat
+                  icon={Trophy}
+                  label="Power"
+                  value={selectedStats.total.toLocaleString()}
+                />
+                <HeroStat
+                  icon={Sparkles}
+                  label="Saved"
+                  value={decks.length}
+                />
               </div>
             </div>
-          )}
-
-          <div className="flex gap-2 flex-wrap min-h-[50px]">
-            {selectedCards.map((item) => (
-              <motion.div
-                key={item.playerCard.id}
-                layout
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-              >
-                <GameCard
-                  card={item.card}
-                  playerCard={item.playerCard}
-                  size="sm"
-                  showStats
-                  onClick={() => toggleCard(item.playerCard.id)}
-                />
-              </motion.div>
-            ))}
           </div>
+        </section>
 
-          <Button
-            onClick={saveDeck}
-            disabled={saving || selectedIds.length === 0}
-            className="w-full gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            {saving
-              ? 'Saving…'
-              : editingDeckId
-                ? 'Update Deck'
-                : 'Save Deck'}
-          </Button>
-
-          {editingDeckId && (
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={resetForm}
-              className="w-full text-xs"
-            >
-              Cancel Edit
-            </Button>
-          )}
-        </div>
-
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-sm font-semibold">Your Cards</h2>
-
-            <p className="text-[10px] text-muted-foreground">
-              Sorted by current power
-            </p>
-          </div>
-
-          <div className="relative mb-3">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search cards, rarity, element, evolution..."
-              className="pl-9 h-9 text-sm"
-            />
-          </div>
-
-          <div className="grid grid-cols-4 gap-2">
-            {filteredCards.map(({ card, playerCard, stats }) => {
-              const selected = selectedIds.includes(playerCard.id);
-
-              return (
-                <div key={playerCard.id} className="relative">
-                  <GameCard
-                    card={card}
-                    playerCard={playerCard}
-                    size="sm"
-                    showStats
-                    onClick={() => toggleCard(playerCard.id)}
-                  />
-                  {playerCard.is_protected && (
-                    <div className="absolute top-1 right-1 z-20 w-6 h-6 rounded-lg border border-yellow-400/50 bg-black/80 flex items-center justify-center pointer-events-none">
-                      <Lock className="w-3.5 h-3.5 text-yellow-300" />
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+          <div className="xl:col-span-5 space-y-6">
+            <QuestPanel>
+              <div className="p-5 md:p-6 border-b border-border bg-primary/5">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 text-primary uppercase tracking-[0.25em] text-xs font-bold">
+                      <Shield className="w-4 h-4" />
+                      Battle Deck
                     </div>
-                  )}
 
-                  <div className="absolute left-1 right-1 bottom-1 rounded-md bg-black/70 px-1 py-0.5 text-[8px] text-center text-white pointer-events-none">
-                    Power {stats.total}
+                    <h2 className="font-display text-2xl md:text-3xl font-black text-primary mt-2">
+                      {editingDeckId ? 'Edit Deck' : 'Create Deck'}
+                    </h2>
+
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Selected {selectedIds.length} / {MAX_DECK_SIZE}
+                    </p>
                   </div>
 
-                  {selected && (
-                    <div className="absolute inset-0 bg-primary/20 rounded-xl border-2 border-primary flex items-center justify-center pointer-events-none">
-                      <Check className="w-6 h-6 text-primary" />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {filteredCards.length === 0 && (
-            <div className="rounded-xl border border-border bg-card p-5 text-center text-sm text-muted-foreground">
-              No cards match your search.
-            </div>
-          )}
-        </div>
-
-        <div className="space-y-3">
-          <h2 className="text-sm font-semibold">Saved Decks</h2>
-
-          {decks.length === 0 && (
-            <div className="rounded-xl border border-border bg-card p-4 text-center text-sm text-muted-foreground">
-              No saved decks yet.
-            </div>
-          )}
-
-          {decks.map((deck) => (
-            <div
-              key={deck.id}
-              className={`bg-card rounded-xl border p-3 ${
-                deck.is_active ? 'border-primary glow-gold' : 'border-border'
-              }`}
-            >
-              <div className="flex justify-between items-center gap-3">
-                <div className="min-w-0">
-                  <p className="font-display font-bold text-sm truncate">
-                    {deck.name}
-                  </p>
-
-                  <p className="text-xs text-muted-foreground">
-                    {deck.card_ids?.length || 0} cards
-                    {deck.is_active ? ' · Active' : ''}
-                  </p>
-                </div>
-
-                <div className="flex gap-1.5 flex-shrink-0">
-                  {!deck.is_active && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setActive(deck)}
-                      className="text-xs h-7"
-                    >
-                      Set Active
-                    </Button>
-                  )}
-
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => editDeck(deck)}
-                    className="h-7 text-xs gap-1"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" />
-                  </Button>
-
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => deleteDeck(deck)}
-                    className="h-7 text-destructive"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
+                  <div className="rounded-2xl border border-primary/30 bg-background/60 px-4 py-3 text-right">
+                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                      Power
+                    </p>
+                    <p className="font-display text-2xl font-black text-primary">
+                      {selectedStats.total.toLocaleString()}
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+
+              <div className="p-5 md:p-6 space-y-4">
+                {isLoading && (
+                  <div className="rounded-2xl border border-border bg-background/50 p-4 text-center text-sm text-muted-foreground">
+                    Loading deck builder…
+                  </div>
+                )}
+
+                {!isLoading && enriched.length === 0 && (
+                  <div className="rounded-2xl border border-border bg-background/50 p-5 text-center text-sm text-muted-foreground">
+                    No cards available. Summon cards first.
+                  </div>
+                )}
+
+                <Input
+                  placeholder="Deck name..."
+                  value={deckName}
+                  onChange={(e) => setDeckName(e.target.value)}
+                  className="h-10 font-display text-sm"
+                />
+
+                <div className="grid grid-cols-3 gap-3">
+                  <MiniStat
+                    icon={Sword}
+                    label="ATK"
+                    value={selectedStats.attack.toLocaleString()}
+                    valueClass="text-red-300"
+                  />
+                  <MiniStat
+                    icon={Shield}
+                    label="DEF"
+                    value={selectedStats.defense.toLocaleString()}
+                    valueClass="text-blue-300"
+                  />
+                  <MiniStat
+                    icon={Heart}
+                    label="HP"
+                    value={selectedStats.hp.toLocaleString()}
+                    valueClass="text-green-300"
+                  />
+                </div>
+
+                <div className="grid grid-cols-5 gap-2">
+                  {Array.from({ length: MAX_DECK_SIZE }).map((_, index) => {
+                    const item = selectedCards[index];
+                    const imageUrl = getCardImage(item?.card);
+
+                    return (
+                      <button
+                        key={index}
+                        type="button"
+                        onClick={() => {
+                          if (item) removeSelectedCard(item.playerCard.id);
+                        }}
+                        className={`relative aspect-[3/4] overflow-hidden rounded-xl border ${
+                          item
+                            ? 'border-primary/50 bg-background'
+                            : 'border-dashed border-border bg-background/35'
+                        }`}
+                      >
+                        {item && imageUrl ? (
+                          <img
+                            src={imageUrl}
+                            alt={item.card.name}
+                            className="h-full w-full object-cover object-top"
+                          />
+                        ) : item ? (
+                          <div className="flex h-full w-full items-center justify-center text-[10px] font-bold text-primary">
+                            {item.card.name}
+                          </div>
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                            <Plus className="h-4 w-4" />
+                          </div>
+                        )}
+
+                        {item && (
+                          <>
+                            <div className="absolute inset-x-0 bottom-0 bg-black/75 px-1 py-0.5 text-[8px] font-black text-white">
+                              {item.stats.total.toLocaleString()}
+                            </div>
+
+                            <div className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/70 text-white">
+                              <X className="h-3 w-3" />
+                            </div>
+                          </>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <Button
+                  onClick={saveDeck}
+                  disabled={saving || selectedIds.length === 0}
+                  className="w-full gap-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  {saving
+                    ? 'Saving…'
+                    : editingDeckId
+                      ? 'Update Deck'
+                      : 'Save Deck'}
+                </Button>
+
+                {editingDeckId && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={resetForm}
+                    className="w-full text-xs"
+                  >
+                    Cancel Edit
+                  </Button>
+                )}
+              </div>
+            </QuestPanel>
+
+            <QuestPanel>
+              <div className="p-5 border-b border-border bg-primary/5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 text-primary uppercase tracking-[0.25em] text-xs font-bold">
+                      <BookOpen className="w-4 h-4" />
+                      Saved Decks
+                    </div>
+                    <h2 className="font-display text-2xl font-black text-primary mt-2">
+                      Arsenal
+                    </h2>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    {decks.length} saved
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-5 space-y-3">
+                {activeDeck && (
+                  <div className="rounded-2xl border border-primary/50 bg-primary/10 p-3">
+                    <p className="text-[10px] uppercase tracking-widest text-primary font-bold">
+                      Active Deck
+                    </p>
+                    <p className="font-display text-lg font-black mt-1">
+                      {activeDeck.name}
+                    </p>
+                  </div>
+                )}
+
+                {decks.length === 0 && (
+                  <div className="rounded-2xl border border-border bg-background/50 p-4 text-center text-sm text-muted-foreground">
+                    No saved decks yet.
+                  </div>
+                )}
+
+                {decks.map((deck) => (
+                  <div
+                    key={deck.id}
+                    className={`rounded-2xl border bg-background/50 p-3 ${
+                      deck.is_active ? 'border-primary/70 glow-gold' : 'border-border'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-display text-sm font-black text-foreground">
+                          {deck.name}
+                        </p>
+
+                        <p className="text-xs text-muted-foreground">
+                          {deck.card_ids?.length || 0} cards
+                          {deck.is_active ? ' · Active' : ''}
+                        </p>
+                      </div>
+
+                      <div className="flex shrink-0 gap-1.5">
+                        {!deck.is_active && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setActive(deck)}
+                            className="h-8 text-xs"
+                          >
+                            Active
+                          </Button>
+                        )}
+
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => editDeck(deck)}
+                          className="h-8 px-2 text-xs"
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                        </Button>
+
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => deleteDeck(deck)}
+                          className="h-8 px-2 text-destructive"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </QuestPanel>
+          </div>
+
+          <div className="xl:col-span-7">
+            <QuestPanel>
+              <div className="p-5 md:p-6 border-b border-border bg-primary/5">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 text-primary uppercase tracking-[0.25em] text-xs font-bold">
+                      <Search className="w-4 h-4" />
+                      Card Selection
+                    </div>
+
+                    <h2 className="font-display text-2xl md:text-3xl font-black text-primary mt-2">
+                      Your Cards
+                    </h2>
+
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Tap cards to add or remove them from the deck.
+                    </p>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    {filteredCards.length} shown
+                  </p>
+                </div>
+
+                <div className="relative mt-4">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+
+                  <Input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search cards..."
+                    className="h-10 pl-9 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="p-5 md:p-6">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 justify-items-center">
+                  {filteredCards.map(({ card, playerCard, stats }) => {
+                    const selected = selectedIds.includes(playerCard.id);
+
+                    return (
+                      <motion.div
+                        key={playerCard.id}
+                        layout
+                        className="relative"
+                        initial={{ opacity: 0, scale: 0.97 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                      >
+                        <GameCard
+                          card={card}
+                          playerCard={playerCard}
+                          size="md"
+                          showStats
+                          showProtectionBadge={false}
+                          onClick={() => toggleCard(playerCard.id)}
+                        />
+
+                        <div className="pointer-events-none absolute bottom-1 left-2 right-2 rounded-full bg-black/75 px-2 py-0.5 text-center text-[9px] font-black text-white">
+                          Power {stats.total.toLocaleString()}
+                        </div>
+
+                        {selected && (
+                          <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl border-2 border-primary bg-primary/20">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg">
+                              <Check className="h-6 w-6" />
+                            </div>
+                          </div>
+                        )}
+                      </motion.div>
+                    );
+                  })}
+                </div>
+
+                {filteredCards.length === 0 && (
+                  <div className="mt-3 rounded-2xl border border-border bg-background/50 p-5 text-center text-sm text-muted-foreground">
+                    No cards match your search.
+                  </div>
+                )}
+              </div>
+            </QuestPanel>
+          </div>
         </div>
       </div>
     </div>
