@@ -218,6 +218,16 @@ function getHpPercent(current, max) {
   );
 }
 
+function getRemainingMinutesFrom(startIso, minutesToAdd) {
+  if (!startIso || !minutesToAdd || Number(minutesToAdd) <= 0) return 0;
+
+  const startTime = new Date(startIso).getTime();
+  if (Number.isNaN(startTime)) return 0;
+
+  const targetTime = startTime + Number(minutesToAdd) * 60 * 1000;
+  return Math.max(0, Math.ceil((targetTime - Date.now()) / 60000));
+}
+
 function AwardedCardGrid({ cards = [] }) {
   if (!cards.length) return null;
 
@@ -922,12 +932,15 @@ function getPeriodKey(cadence) {
   return 'permanent';
 }
 
+
 export default function Quests() {
   const queryClient = useQueryClient();
 
+  const [selectedBookId, setSelectedBookId] = useState(null);
   const [selectedChapterId, setSelectedChapterId] = useState(null);
   const [processingNodeId, setProcessingNodeId] = useState(null);
   const [claimingMilestoneId, setClaimingMilestoneId] = useState(null);
+  const [switchingPathKey, setSwitchingPathKey] = useState(null);
   const [lastResult, setLastResult] = useState(null);
   const [activeNode, setActiveNode] = useState(null);
   const [spawningBossNodeId, setSpawningBossNodeId] = useState(null);
@@ -956,18 +969,32 @@ export default function Quests() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ['questsReloadedData', userId],
+    queryKey: ['questsReloadedV14Data', userId],
     enabled: !!userId,
     queryFn: async () => {
-      const now = new Date().toISOString();
+      const unlockResponse = await supabase.rpc(
+        'ensure_player_quest_starter_unlocks',
+        {
+          p_user_id: userId,
+        }
+      );
+
+      if (unlockResponse.error) throw unlockResponse.error;
 
       const [
         profileResponse,
         inventoryResponse,
         summonTicketResponse,
+        booksResponse,
         chaptersResponse,
         nodesResponse,
-        progressResponse,
+        legacyProgressResponse,
+        nodePathProgressResponse,
+        chapterPathProgressResponse,
+        bookUnlocksResponse,
+        chapterUnlocksResponse,
+        activePathsResponse,
+        storyPathsResponse,
         milestonesResponse,
         claimedResponse,
         bossInstancesResponse,
@@ -988,9 +1015,15 @@ export default function Quests() {
           .maybeSingle(),
 
         supabase
+          .from('quest_books')
+          .select('*')
+          .eq('is_visible', true)
+          .order('sort_order', { ascending: true }),
+
+        supabase
           .from('quest_chapters')
           .select('*')
-          .eq('is_active', true)
+          .eq('is_visible', true)
           .order('sort_order', { ascending: true }),
 
         supabase
@@ -1003,6 +1036,37 @@ export default function Quests() {
           .from('player_quest_progress')
           .select('*')
           .eq('user_id', userId),
+
+        supabase
+          .from('player_quest_node_path_progress')
+          .select('*')
+          .eq('user_id', userId),
+
+        supabase
+          .from('player_quest_chapter_path_progress')
+          .select('*')
+          .eq('user_id', userId),
+
+        supabase
+          .from('player_quest_book_unlocks')
+          .select('*')
+          .eq('user_id', userId),
+
+        supabase
+          .from('player_quest_chapter_unlocks')
+          .select('*')
+          .eq('user_id', userId),
+
+        supabase
+          .from('player_quest_active_paths')
+          .select('*')
+          .eq('user_id', userId),
+
+        supabase
+          .from('quest_story_paths')
+          .select('*')
+          .eq('is_active', true)
+          .order('sort_order', { ascending: true }),
 
         supabase
           .from('quest_milestones')
@@ -1027,9 +1091,16 @@ export default function Quests() {
         profileResponse,
         inventoryResponse,
         summonTicketResponse,
+        booksResponse,
         chaptersResponse,
         nodesResponse,
-        progressResponse,
+        legacyProgressResponse,
+        nodePathProgressResponse,
+        chapterPathProgressResponse,
+        bookUnlocksResponse,
+        chapterUnlocksResponse,
+        activePathsResponse,
+        storyPathsResponse,
         milestonesResponse,
         claimedResponse,
         bossInstancesResponse,
@@ -1039,13 +1110,19 @@ export default function Quests() {
       if (failed?.error) throw failed.error;
 
       return {
-        loadedAt: now,
         profile: profileResponse.data || null,
         inventory: inventoryResponse.data || null,
         summonTickets: Number(summonTicketResponse.data?.quantity || 0),
+        books: booksResponse.data || [],
         chapters: chaptersResponse.data || [],
         nodes: nodesResponse.data || [],
-        progress: progressResponse.data || [],
+        legacyProgress: legacyProgressResponse.data || [],
+        nodePathProgress: nodePathProgressResponse.data || [],
+        chapterPathProgress: chapterPathProgressResponse.data || [],
+        bookUnlocks: bookUnlocksResponse.data || [],
+        chapterUnlocks: chapterUnlocksResponse.data || [],
+        activePaths: activePathsResponse.data || [],
+        storyPaths: storyPathsResponse.data || [],
         milestones: milestonesResponse.data || [],
         claimedMilestones: claimedResponse.data || [],
         bossInstances: bossInstancesResponse.data || [],
@@ -1056,46 +1133,167 @@ export default function Quests() {
   const profile = data?.profile || null;
   const inventory = data?.inventory || null;
   const summonTickets = data?.summonTickets || 0;
+  const books = data?.books || [];
   const chapters = data?.chapters || [];
   const nodes = data?.nodes || [];
-  const progress = data?.progress || [];
+  const legacyProgress = data?.legacyProgress || [];
+  const nodePathProgress = data?.nodePathProgress || [];
+  const chapterPathProgressRows = data?.chapterPathProgress || [];
+  const bookUnlocks = data?.bookUnlocks || [];
+  const chapterUnlocks = data?.chapterUnlocks || [];
+  const activePaths = data?.activePaths || [];
+  const storyPaths = data?.storyPaths || [];
   const milestones = data?.milestones || [];
   const claimedMilestones = data?.claimedMilestones || [];
   const bossInstances = data?.bossInstances || [];
 
+  const bookUnlockIds = useMemo(() => {
+    return new Set(bookUnlocks.map((row) => row.book_id));
+  }, [bookUnlocks]);
+
+  const chapterUnlockIds = useMemo(() => {
+    return new Set(chapterUnlocks.map((row) => row.chapter_id));
+  }, [chapterUnlocks]);
+
+  const firstPlayableBook = useMemo(() => {
+    return (
+      books.find(
+        (book) =>
+          book.is_active &&
+          book.release_state === 'active' &&
+          bookUnlockIds.has(book.id)
+      ) || books.find((book) => book.book_number === 1) || books[0] || null
+    );
+  }, [books, bookUnlockIds]);
+
   useEffect(() => {
-    if (!selectedChapterId && chapters.length > 0) {
-      setSelectedChapterId(chapters[0].id);
+    if (!selectedBookId && firstPlayableBook?.id) {
+      setSelectedBookId(firstPlayableBook.id);
     }
-  }, [chapters, selectedChapterId]);
+  }, [firstPlayableBook, selectedBookId]);
+
+  const selectedBook = useMemo(() => {
+    return books.find((book) => book.id === selectedBookId) || firstPlayableBook || null;
+  }, [books, selectedBookId, firstPlayableBook]);
+
+  const bookChapters = useMemo(() => {
+    if (!selectedBook) return [];
+
+    return chapters
+      .filter((chapter) => chapter.book_id === selectedBook.id)
+      .sort((a, b) => Number(a.chapter_number || a.sort_order || 0) - Number(b.chapter_number || b.sort_order || 0));
+  }, [chapters, selectedBook]);
+
+  const firstPlayableChapter = useMemo(() => {
+    return (
+      bookChapters.find(
+        (chapter) =>
+          chapter.is_active &&
+          chapter.release_state === 'active' &&
+          chapterUnlockIds.has(chapter.id)
+      ) || bookChapters[0] || null
+    );
+  }, [bookChapters, chapterUnlockIds]);
+
+  useEffect(() => {
+    if (!selectedChapterId && firstPlayableChapter?.id) {
+      setSelectedChapterId(firstPlayableChapter.id);
+      return;
+    }
+
+    if (
+      selectedChapterId &&
+      selectedBook &&
+      !bookChapters.some((chapter) => chapter.id === selectedChapterId)
+    ) {
+      setSelectedChapterId(firstPlayableChapter?.id || null);
+    }
+  }, [selectedChapterId, selectedBook, bookChapters, firstPlayableChapter]);
 
   const selectedChapter = useMemo(() => {
-    return chapters.find((chapter) => chapter.id === selectedChapterId) || null;
-  }, [chapters, selectedChapterId]);
+    return bookChapters.find((chapter) => chapter.id === selectedChapterId) || firstPlayableChapter || null;
+  }, [bookChapters, selectedChapterId, firstPlayableChapter]);
+
+  const selectedActivePathKey = useMemo(() => {
+    if (!selectedChapter) return 'main';
+
+    return (
+      activePaths.find((row) => row.chapter_id === selectedChapter.id)?.active_path_key || 'main'
+    );
+  }, [activePaths, selectedChapter]);
+
+  const chapterStoryPaths = useMemo(() => {
+    if (!selectedChapter) return [];
+
+    return storyPaths
+      .filter((path) => path.chapter_id === selectedChapter.id)
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+  }, [storyPaths, selectedChapter]);
 
   const chapterNodes = useMemo(() => {
     if (!selectedChapter) return [];
 
     return nodes
-      .filter((node) => node.chapter_id === selectedChapter.id)
-      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
-  }, [nodes, selectedChapter]);
+      .filter((node) => {
+        const nodePath = node.story_path_key || 'main';
+        return (
+          node.chapter_id === selectedChapter.id &&
+          (nodePath === 'main' || nodePath === selectedActivePathKey)
+        );
+      })
+      .sort((a, b) => Number(a.node_number || a.sort_order || 0) - Number(b.node_number || b.sort_order || 0));
+  }, [nodes, selectedChapter, selectedActivePathKey]);
+
+  const activePathProgressRows = useMemo(() => {
+    return nodePathProgress.filter(
+      (row) =>
+        row.chapter_id === selectedChapter?.id &&
+        row.path_key === selectedActivePathKey
+    );
+  }, [nodePathProgress, selectedChapter, selectedActivePathKey]);
 
   const progressByNodeId = useMemo(() => {
-    return new Map(progress.map((row) => [row.node_id, row]));
-  }, [progress]);
+    const map = new Map();
+
+    activePathProgressRows.forEach((row) => {
+      map.set(row.node_id, row);
+    });
+
+    // Legacy fallback keeps old progress visible during the V1.4 transition.
+    legacyProgress
+      .filter((row) => row.chapter_id === selectedChapter?.id)
+      .forEach((row) => {
+        if (!map.has(row.node_id)) map.set(row.node_id, row);
+      });
+
+    return map;
+  }, [activePathProgressRows, legacyProgress, selectedChapter]);
+
+  const progressByNodeKey = useMemo(() => {
+    return new Map(
+      chapterNodes.map((node) => [node.node_key, progressByNodeId.get(node.id)])
+    );
+  }, [chapterNodes, progressByNodeId]);
 
   const bossInstanceByNodeId = useMemo(() => {
-    return new Map(bossInstances.map((boss) => [boss.node_id, boss]));
-  }, [bossInstances]);
+    return new Map(
+      bossInstances
+        .filter((boss) => {
+          if (!selectedChapter) return false;
+          const bossPath = boss.path_key || 'main';
+          return boss.chapter_id === selectedChapter.id && bossPath === selectedActivePathKey;
+        })
+        .map((boss) => [boss.node_id, boss])
+    );
+  }, [bossInstances, selectedChapter, selectedActivePathKey]);
 
   const completedNodeIds = useMemo(() => {
     return new Set(
-      progress
-        .filter((row) => row.first_completed_at)
-        .map((row) => row.node_id)
+      chapterNodes
+        .filter((node) => progressByNodeId.get(node.id)?.first_completed_at)
+        .map((node) => node.id)
     );
-  }, [progress]);
+  }, [chapterNodes, progressByNodeId]);
 
   const completedNodeKeys = useMemo(() => {
     return new Set(
@@ -1105,40 +1303,163 @@ export default function Quests() {
     );
   }, [chapterNodes, completedNodeIds]);
 
-  const isNodeUnlocked = (node) => {
-    if (!node.required_node_key) return true;
-    return completedNodeKeys.has(node.required_node_key);
-  };
+  const selectedBookAvailable = !!(
+    selectedBook &&
+    selectedBook.is_active &&
+    selectedBook.release_state === 'active' &&
+    bookUnlockIds.has(selectedBook.id)
+  );
+
+  const selectedChapterAvailable = !!(
+    selectedChapter &&
+    selectedBookAvailable &&
+    selectedChapter.is_active &&
+    selectedChapter.release_state === 'active' &&
+    chapterUnlockIds.has(selectedChapter.id)
+  );
+
+  function getNodeLockInfo(node) {
+    if (!node) {
+      return { locked: true, reason: 'Quest unavailable.' };
+    }
+
+    if (!selectedChapterAvailable) {
+      return { locked: true, reason: 'This chapter is locked.' };
+    }
+
+    const requiredLevel = Number(node.min_level_required || 1);
+    const playerLevel = Number(profile?.level || 1);
+
+    if (requiredLevel > 1 && playerLevel < requiredLevel) {
+      return { locked: true, reason: `Requires Level ${requiredLevel}.` };
+    }
+
+    if (node.required_node_key) {
+      const requiredProgress = progressByNodeKey.get(node.required_node_key);
+
+      if (!requiredProgress?.first_completed_at) {
+        return { locked: true, reason: 'Complete the previous node first.' };
+      }
+
+      const unlockDelay = Number(node.unlock_delay_minutes || 0);
+      const unlockRemaining = getRemainingMinutesFrom(
+        requiredProgress.first_completed_at,
+        unlockDelay
+      );
+
+      if (unlockRemaining > 0) {
+        return { locked: true, reason: `Path opens in ${unlockRemaining}m.` };
+      }
+    }
+
+    // Replays are intentionally allowed.
+    // First-clear rewards are protected by Supabase per storyline path,
+    // while completed path replays only receive repeat rewards.
+
+    return { locked: false, reason: '' };
+  }
 
   const nextNode = useMemo(() => {
     return (
       chapterNodes.find(
-        (node) => !completedNodeIds.has(node.id) && isNodeUnlocked(node)
+        (node) => !completedNodeIds.has(node.id) && !getNodeLockInfo(node).locked
       ) || null
     );
-  }, [chapterNodes, completedNodeIds, completedNodeKeys]);
+  }, [chapterNodes, completedNodeIds, progressByNodeKey, progressByNodeId, selectedChapterAvailable]);
 
-  const completedCount = chapterNodes.filter((node) =>
-    completedNodeIds.has(node.id)
-  ).length;
+  const completedCount = chapterNodes.filter((node) => completedNodeIds.has(node.id)).length;
+  const questPercent = chapterNodes.length ? Math.floor((completedCount / chapterNodes.length) * 100) : 0;
 
-  const questPercent = chapterNodes.length
-    ? Math.floor((completedCount / chapterNodes.length) * 100)
-    : 0;
+  const activeChapterPathProgress = useMemo(() => {
+    return chapterPathProgressRows.find(
+      (row) =>
+        row.chapter_id === selectedChapter?.id &&
+        row.path_key === selectedActivePathKey
+    ) || null;
+  }, [chapterPathProgressRows, selectedChapter, selectedActivePathKey]);
 
   const weeklyQuestCount = useMemo(() => {
-    return progress.reduce((sum, row) => sum + Number(row.completions || 0), 0);
-  }, [progress]);
+    return nodePathProgress.reduce((sum, row) => sum + Number(row.completions || 0), 0);
+  }, [nodePathProgress]);
 
   const bossClearCount = useMemo(() => {
     const bossNodeIds = new Set(
       nodes.filter((node) => node.node_type === 'boss').map((node) => node.id)
     );
 
-    return progress
+    return nodePathProgress
       .filter((row) => bossNodeIds.has(row.node_id))
       .reduce((sum, row) => sum + Number(row.completions || 0), 0);
-  }, [nodes, progress]);
+  }, [nodes, nodePathProgress]);
+
+  async function switchBook(book) {
+    if (!book) return;
+
+    const globallyActive = book.is_active && book.release_state === 'active';
+    const unlocked = bookUnlockIds.has(book.id);
+
+    if (!globallyActive || !unlocked) {
+      toast.error(`${book.title} is not playable yet.`);
+      setSelectedBookId(book.id);
+      const firstChapter = chapters
+        .filter((chapter) => chapter.book_id === book.id)
+        .sort((a, b) => Number(a.chapter_number || 0) - Number(b.chapter_number || 0))[0];
+      setSelectedChapterId(firstChapter?.id || null);
+      return;
+    }
+
+    setSelectedBookId(book.id);
+    const nextChapter = chapters
+      .filter((chapter) => chapter.book_id === book.id)
+      .sort((a, b) => Number(a.chapter_number || 0) - Number(b.chapter_number || 0))
+      .find(
+        (chapter) =>
+          chapter.is_active &&
+          chapter.release_state === 'active' &&
+          chapterUnlockIds.has(chapter.id)
+      );
+
+    setSelectedChapterId(nextChapter?.id || null);
+  }
+
+  function switchChapter(chapter) {
+    if (!chapter) return;
+
+    setSelectedChapterId(chapter.id);
+
+    const globallyActive = chapter.is_active && chapter.release_state === 'active';
+    const unlocked = chapterUnlockIds.has(chapter.id);
+
+    if (!globallyActive || !unlocked) {
+      toast.error(`${chapter.title} is locked.`);
+    }
+  }
+
+  async function switchStoryPath(path) {
+    if (!selectedChapter || !path) return;
+
+    try {
+      setSwitchingPathKey(path.path_key);
+      setMessage('');
+
+      const { error: rpcError } = await supabase.rpc('set_active_quest_story_path', {
+        p_chapter_id: selectedChapter.id,
+        p_path_key: path.path_key,
+      });
+
+      if (rpcError) throw rpcError;
+
+      toast.success(`Storyline switched to ${path.title}.`);
+      await queryClient.invalidateQueries({ queryKey: ['questsReloadedV14Data', userId] });
+      await refetch();
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'Could not switch storyline.');
+      setMessage(err.message || 'Could not switch storyline.');
+    } finally {
+      setSwitchingPathKey(null);
+    }
+  }
 
   function openNode(node) {
     if (!userId) {
@@ -1146,8 +1467,10 @@ export default function Quests() {
       return;
     }
 
-    if (!isNodeUnlocked(node)) {
-      toast.error('This quest node is locked.');
+    const lockInfo = getNodeLockInfo(node);
+
+    if (lockInfo.locked) {
+      toast.error(lockInfo.reason || 'This quest node is locked.');
       return;
     }
 
@@ -1180,8 +1503,10 @@ export default function Quests() {
       return;
     }
 
-    if (!isNodeUnlocked(node)) {
-      toast.error('This quest node is locked.');
+    const lockInfo = getNodeLockInfo(node);
+
+    if (lockInfo.locked) {
+      toast.error(lockInfo.reason || 'This quest node is locked.');
       return;
     }
 
@@ -1200,7 +1525,7 @@ export default function Quests() {
       setMessage('');
 
       const { data: result, error: rpcError } = await supabase.rpc(
-        'complete_quest_node',
+        'complete_quest_node_v14',
         {
           p_node_id: node.id,
         }
@@ -1210,10 +1535,10 @@ export default function Quests() {
 
       setLastResult(result);
       setActiveNode(null);
-      toast.success(result?.first_clear ? 'First clear complete!' : 'Quest complete!');
+      toast.success(result?.path_first_clear ? 'Story path first clear!' : 'Quest complete!');
 
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['questsReloadedData', userId] }),
+        queryClient.invalidateQueries({ queryKey: ['questsReloadedV14Data', userId] }),
         queryClient.invalidateQueries({ queryKey: ['playerProfile'] }),
         queryClient.invalidateQueries({ queryKey: ['playerInventory'] }),
         queryClient.invalidateQueries({ queryKey: ['playerCards'] }),
@@ -1252,7 +1577,7 @@ export default function Quests() {
       toast.success(result?.reused ? 'Boss encounter resumed!' : 'Boss awakened!');
 
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['questsReloadedData', userId] }),
+        queryClient.invalidateQueries({ queryKey: ['questsReloadedV14Data', userId] }),
         queryClient.invalidateQueries({ queryKey: ['playerProfile'] }),
       ]);
 
@@ -1308,7 +1633,7 @@ export default function Quests() {
       }
 
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['questsReloadedData', userId] }),
+        queryClient.invalidateQueries({ queryKey: ['questsReloadedV14Data', userId] }),
         queryClient.invalidateQueries({ queryKey: ['playerProfile'] }),
         queryClient.invalidateQueries({ queryKey: ['playerInventory'] }),
         queryClient.invalidateQueries({ queryKey: ['playerCards'] }),
@@ -1354,7 +1679,7 @@ export default function Quests() {
       toast.success('Milestone claimed!');
 
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['questsReloadedData', userId] }),
+        queryClient.invalidateQueries({ queryKey: ['questsReloadedV14Data', userId] }),
         queryClient.invalidateQueries({ queryKey: ['playerProfile'] }),
         queryClient.invalidateQueries({ queryKey: ['playerInventory'] }),
         queryClient.invalidateQueries({ queryKey: ['playerCards'] }),
@@ -1372,7 +1697,7 @@ export default function Quests() {
 
   function getMilestoneProgress(milestone) {
     if (milestone.requirement_type === 'unique_nodes_completed') {
-      return completedNodeIds.size;
+      return new Set(nodePathProgress.filter((row) => row.first_completed_at).map((row) => row.node_id)).size;
     }
 
     if (milestone.requirement_type === 'boss_nodes_completed') {
@@ -1424,14 +1749,8 @@ export default function Quests() {
             <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
             <div>
               <p className="font-bold text-destructive">Quest load failed</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                {error.message}
-              </p>
-              <Button
-                variant="outline"
-                className="mt-4"
-                onClick={() => refetch()}
-              >
+              <p className="text-sm text-muted-foreground mt-1">{error.message}</p>
+              <Button variant="outline" className="mt-4" onClick={() => refetch()}>
                 Retry
               </Button>
             </div>
@@ -1441,12 +1760,12 @@ export default function Quests() {
     );
   }
 
-  if (!chapters.length) {
+  if (!books.length) {
     return (
       <div className="max-w-lg mx-auto p-4">
         <EmptyState
-          message="No Quest Chapters Found"
-          subtext="Run the Quest Reloaded V1 chapter seed in Supabase first."
+          message="No Quest Books Found"
+          subtext="Run the Quest Reloaded V1.4 SQL in Supabase first."
         />
       </div>
     );
@@ -1463,9 +1782,9 @@ export default function Quests() {
       <div className="relative max-w-7xl mx-auto p-4 md:p-6 space-y-6">
         <section className="relative overflow-hidden rounded-3xl border border-primary/30 bg-card shadow-2xl">
           <img
-            src={selectedChapter?.background_url || QUEST_BG}
+            src={selectedBook?.background_url || selectedChapter?.background_url || QUEST_BG}
             alt=""
-            className="absolute inset-0 w-full h-full object-cover object-center opacity-35"
+            className="absolute inset-0 w-full h-full object-cover object-center opacity-30"
           />
 
           <div className="absolute inset-0 bg-gradient-to-r from-background via-background/80 to-background/30" />
@@ -1476,7 +1795,7 @@ export default function Quests() {
               <div>
                 <div className="flex items-center gap-2 text-primary uppercase tracking-[0.3em] text-xs font-bold">
                   <Sparkles className="w-4 h-4" />
-                  Quest Reloaded V1
+                  Quest Reloaded V1.4
                 </div>
 
                 <h1 className="font-display text-4xl md:text-6xl font-black mt-3 text-primary text-glow-gold">
@@ -1484,27 +1803,14 @@ export default function Quests() {
                 </h1>
 
                 <p className="text-muted-foreground mt-3 max-w-3xl">
-                  {selectedChapter?.description ||
-                    'Clear quest nodes, earn controlled progression, and chase premium rewards without breaking the card economy.'}
+                  {selectedBook?.title || 'Book'} → {selectedChapter?.title || 'Chapter'} → Node Map
                 </p>
               </div>
 
               <div className="grid grid-cols-3 gap-3 lg:min-w-[360px]">
-                <StatCard
-                  icon={Trophy}
-                  label="Chapter"
-                  value={selectedChapter?.chapter_number || 1}
-                />
-                <StatCard
-                  icon={CheckCircle2}
-                  label="Cleared"
-                  value={`${completedCount}/${chapterNodes.length}`}
-                />
-                <StatCard
-                  icon={Clock}
-                  label="Progress"
-                  value={`${questPercent}%`}
-                />
+                <StatCard icon={ScrollText} label="Book" value={selectedBook?.book_number || 1} />
+                <StatCard icon={Trophy} label="Chapter" value={selectedChapter?.chapter_number || 1} />
+                <StatCard icon={Clock} label="Progress" value={`${questPercent}%`} />
               </div>
             </div>
           </div>
@@ -1519,6 +1825,55 @@ export default function Quests() {
           </div>
         )}
 
+        <section className="rounded-3xl border border-primary/20 bg-card/90 shadow-2xl overflow-hidden">
+          <div className="p-5 md:p-6 border-b border-border bg-primary/5">
+            <div className="flex items-center gap-2 text-primary uppercase tracking-[0.25em] text-xs font-bold">
+              <ScrollText className="w-4 h-4" />
+              Campaign Books
+            </div>
+            <h2 className="font-display text-2xl md:text-3xl font-black text-primary mt-2">
+              Select a Book
+            </h2>
+          </div>
+
+          <div className="p-5 md:p-6 grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
+            {books.map((book) => {
+              const active = book.id === selectedBook?.id;
+              const playable = book.is_active && book.release_state === 'active' && bookUnlockIds.has(book.id);
+
+              return (
+                <button
+                  key={book.id}
+                  type="button"
+                  onClick={() => switchBook(book)}
+                  className={`rounded-2xl border p-4 text-left transition-all ${
+                    active
+                      ? 'border-primary bg-primary/10'
+                      : playable
+                        ? 'border-border bg-background/60 hover:border-primary/40'
+                        : 'border-border bg-muted/20 opacity-75'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                        Book {book.book_number}
+                      </p>
+                      <p className="font-display font-black text-primary mt-1">
+                        {book.faction || book.title}
+                      </p>
+                    </div>
+                    {!playable && <Lock className="w-4 h-4 text-muted-foreground" />}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-2 line-clamp-3">
+                    {playable ? 'Playable' : prettyKey(book.release_state || 'Coming Soon')}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
           <section className="xl:col-span-8 rounded-3xl border border-primary/20 bg-card/90 shadow-2xl overflow-hidden">
             <div className="p-5 md:p-6 border-b border-border bg-primary/5">
@@ -1526,46 +1881,53 @@ export default function Quests() {
                 <div>
                   <div className="flex items-center gap-2 text-primary uppercase tracking-[0.25em] text-xs font-bold">
                     <MapIcon className="w-4 h-4" />
-                    Active Chapter
+                    {selectedBook?.title || 'Book'}
                   </div>
 
                   <h2 className="font-display text-2xl md:text-3xl font-black text-primary mt-2">
-                    {selectedChapter?.title}
+                    {selectedChapter?.title || 'Select a Chapter'}
                   </h2>
+
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Active Storyline: <span className="text-primary font-bold">{prettyKey(selectedActivePathKey)}</span>
+                  </p>
                 </div>
 
-                <Button
-                  variant="outline"
-                  onClick={() => refetch()}
-                  className="gap-2"
-                >
+                <Button variant="outline" onClick={() => refetch()} className="gap-2">
                   <RefreshCcw className="w-4 h-4" />
                   Refresh
                 </Button>
               </div>
 
               <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-                {chapters.map((chapter) => {
-                  const active = chapter.id === selectedChapterId;
+                {bookChapters.map((chapter) => {
+                  const active = chapter.id === selectedChapter?.id;
+                  const playable = chapter.is_active && chapter.release_state === 'active' && chapterUnlockIds.has(chapter.id);
 
                   return (
                     <button
                       key={chapter.id}
                       type="button"
-                      onClick={() => setSelectedChapterId(chapter.id)}
+                      onClick={() => switchChapter(chapter)}
                       className={`rounded-2xl border px-4 py-3 text-left min-w-[220px] transition-all ${
                         active
                           ? 'border-primary bg-primary/10'
-                          : 'border-border bg-background/50 hover:border-primary/40'
+                          : playable
+                            ? 'border-border bg-background/50 hover:border-primary/40'
+                            : 'border-border bg-muted/20 opacity-70'
                       }`}
                     >
-                      <p className="font-display font-black text-sm text-primary">
-                        {chapter.title}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground mt-1">
-                        {chapter.faction || 'Veilbreak'} · Chapter{' '}
-                        {chapter.chapter_number || 1}
-                      </p>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-display font-black text-sm text-primary">
+                            Chapter {chapter.chapter_number}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2">
+                            {chapter.title}
+                          </p>
+                        </div>
+                        {!playable && <Lock className="w-4 h-4 text-muted-foreground" />}
+                      </div>
                     </button>
                   );
                 })}
@@ -1574,209 +1936,220 @@ export default function Quests() {
 
             <div className="p-5 md:p-6">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <ResourceCard
-                  icon={Zap}
-                  label="Stamina"
-                  value={profile?.stamina ?? 0}
-                  max={profile?.max_stamina ?? 100}
-                />
-                <ResourceCard
-                  icon={Swords}
-                  label="Attack Energy"
-                  value={profile?.attack_energy ?? 0}
-                  max={profile?.max_attack_energy ?? 100}
-                />
-                <ResourceCard
-                  icon={CircleDollarSign}
-                  label="Gold"
-                  value={profile?.gold ?? 0}
-                />
-                <ResourceCard
-                  icon={Ticket}
-                  label="Summon Tickets"
-                  value={summonTickets}
-                />
+                <ResourceCard icon={Zap} label="Stamina" value={profile?.stamina ?? 0} max={profile?.max_stamina ?? 100} />
+                <ResourceCard icon={CircleDollarSign} label="Gold" value={profile?.gold ?? 0} />
+                <ResourceCard icon={Ticket} label="Summon Tickets" value={summonTickets} />
+                <ResourceCard icon={Star} label="Level" value={profile?.level ?? 1} />
               </div>
 
               <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
-                <ResourceCard
-                  icon={Sparkles}
-                  label="Aether Dust"
-                  value={inventory?.aether_dust ?? 0}
-                />
-                <ResourceCard
-                  icon={Droplets}
-                  label="Spirit Water"
-                  value={inventory?.spirit_water ?? 0}
-                />
-                <ResourceCard
-                  icon={ScrollText}
-                  label="Quest Clears"
-                  value={inventory?.quests_completed ?? profile?.quests_completed ?? 0}
-                />
-                <ResourceCard
-                  icon={Crown}
-                  label="Boss Clears"
-                  value={inventory?.boss_quests_cleared ?? 0}
-                />
+                <ResourceCard icon={Sparkles} label="Aether Dust" value={inventory?.aether_dust ?? 0} />
+                <ResourceCard icon={Droplets} label="Spirit Water" value={inventory?.spirit_water ?? 0} />
+                <ResourceCard icon={ScrollText} label="Path Clears" value={activeChapterPathProgress?.completion_count ?? 0} />
+                <ResourceCard icon={Crown} label="Boss Clears" value={inventory?.boss_quests_cleared ?? 0} />
               </div>
 
-              <QuestPath
-                nodes={chapterNodes}
-                completedNodeIds={completedNodeIds}
-                nextNodeId={nextNode?.id}
-              />
-
-              <div className="mt-5">
-                <div className="flex justify-between text-xs uppercase tracking-widest text-muted-foreground mb-2">
-                  <span>Chapter Progress</span>
-                  <span>{questPercent}%</span>
+              {!selectedChapterAvailable ? (
+                <div className="mt-6 rounded-3xl border border-border bg-muted/20 p-8 text-center">
+                  <Lock className="w-12 h-12 mx-auto text-muted-foreground opacity-60" />
+                  <h3 className="font-display text-2xl font-black text-primary mt-4">
+                    Chapter Locked
+                  </h3>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    This chapter is reserved for the next campaign rollout.
+                  </p>
                 </div>
+              ) : (
+                <>
+                  <div className="mt-6 rounded-3xl border border-purple-400/20 bg-purple-500/10 p-4">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-widest text-purple-200 font-bold">
+                          Story Paths
+                        </p>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          First clear rewards can be earned once per storyline path. Completed paths become repeat-reward farming routes.
+                        </p>
+                      </div>
+                    </div>
 
-                <div className="h-4 rounded-full bg-muted overflow-hidden border border-border">
-                  <div
-                    className="h-full bg-gradient-to-r from-primary via-purple-400 to-yellow-300 transition-all"
-                    style={{ width: `${questPercent}%` }}
-                  />
-                </div>
-              </div>
+                    <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                      {chapterStoryPaths.map((path) => {
+                        const active = path.path_key === selectedActivePathKey;
+                        const completed = chapterPathProgressRows.some(
+                          (row) =>
+                            row.chapter_id === selectedChapter.id &&
+                            row.path_key === path.path_key &&
+                            row.first_completed_at
+                        );
 
-              <div className="mt-6 space-y-3">
-                <AnimatePresence>
-                  {chapterNodes.map((node, index) => {
-                    const meta = NODE_META[node.node_type] || NODE_META.story;
-                    const Icon = meta.icon;
-                    const completed = completedNodeIds.has(node.id);
-                    const unlocked = isNodeUnlocked(node);
-                    const processing = processingNodeId === node.id;
-                    const progressRow = progressByNodeId.get(node.id);
-                    const activeBoss = bossInstanceByNodeId.get(node.id);
+                        return (
+                          <Button
+                            key={path.id}
+                            size="sm"
+                            variant={active ? 'default' : 'outline'}
+                            disabled={switchingPathKey === path.path_key}
+                            onClick={() => switchStoryPath(path)}
+                            className="whitespace-nowrap gap-2"
+                          >
+                            {completed && <CheckCircle2 className="w-3.5 h-3.5" />}
+                            {switchingPathKey === path.path_key ? 'Switching...' : path.title}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </div>
 
-                    return (
-                      <motion.div
-                        key={node.id}
-                        initial={{ opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.035 }}
-                        className={`relative overflow-hidden rounded-3xl border p-4 ${
-                          unlocked
-                            ? `${meta.border} ${meta.bg}`
-                            : 'border-border bg-muted/20 opacity-70'
-                        }`}
-                      >
-                        <div className="absolute inset-0 bg-gradient-to-r from-card/95 via-card/80 to-transparent pointer-events-none" />
+                  <QuestPath nodes={chapterNodes} completedNodeIds={completedNodeIds} nextNodeId={nextNode?.id} />
 
-                        <div className="relative z-10 flex flex-col md:flex-row md:items-center gap-4">
-                          <div
-                            className={`w-14 h-14 rounded-2xl border flex items-center justify-center flex-shrink-0 ${
+                  <div className="mt-5">
+                    <div className="flex justify-between text-xs uppercase tracking-widest text-muted-foreground mb-2">
+                      <span>Chapter Progress</span>
+                      <span>{questPercent}%</span>
+                    </div>
+
+                    <div className="h-4 rounded-full bg-muted overflow-hidden border border-border">
+                      <div
+                        className="h-full bg-gradient-to-r from-primary via-purple-400 to-yellow-300 transition-all"
+                        style={{ width: `${questPercent}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-6 space-y-3">
+                    <AnimatePresence>
+                      {chapterNodes.map((node, index) => {
+                        const meta = NODE_META[node.node_type] || NODE_META.story;
+                        const Icon = meta.icon;
+                        const completed = completedNodeIds.has(node.id);
+                        const lockInfo = getNodeLockInfo(node);
+                        const unlocked = !lockInfo.locked;
+                        const processing = processingNodeId === node.id;
+                        const progressRow = progressByNodeId.get(node.id);
+                        const activeBoss = bossInstanceByNodeId.get(node.id);
+
+                        return (
+                          <motion.div
+                            key={node.id}
+                            initial={{ opacity: 0, y: 12 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: index * 0.035 }}
+                            className={`relative overflow-hidden rounded-3xl border p-4 ${
                               unlocked
-                                ? 'border-primary/30 bg-background/70'
-                                : 'border-border bg-background/40'
+                                ? `${meta.border} ${meta.bg}`
+                                : 'border-border bg-muted/20 opacity-80'
                             }`}
                           >
-                            {unlocked ? (
-                              <Icon className={`w-6 h-6 ${meta.text}`} />
-                            ) : (
-                              <Lock className="w-6 h-6 text-muted-foreground" />
-                            )}
-                          </div>
+                            <div className="absolute inset-0 bg-gradient-to-r from-card/95 via-card/80 to-transparent pointer-events-none" />
 
-                          <div className="flex-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="font-display text-lg font-black text-foreground">
-                                {node.title}
-                              </p>
+                            <div className="relative z-10 flex flex-col md:flex-row md:items-center gap-4">
+                              <div
+                                className={`w-14 h-14 rounded-2xl border flex items-center justify-center flex-shrink-0 ${
+                                  unlocked
+                                    ? 'border-primary/30 bg-background/70'
+                                    : 'border-border bg-background/40'
+                                }`}
+                              >
+                                {unlocked ? (
+                                  <Icon className={`w-6 h-6 ${meta.text}`} />
+                                ) : (
+                                  <Lock className="w-6 h-6 text-muted-foreground" />
+                                )}
+                              </div>
 
-                              {completed && (
-                                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-200 font-bold uppercase">
-                                  <CheckCircle2 className="w-3 h-3" />
-                                  Cleared
-                                </span>
-                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-[11px] rounded-full bg-background/70 border border-border px-2 py-0.5 text-muted-foreground font-bold">
+                                    Node {node.node_number || node.sort_order || index + 1}
+                                  </p>
 
-                              {!unlocked && (
-                                <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] text-muted-foreground font-bold uppercase">
-                                  <Lock className="w-3 h-3" />
-                                  Locked
-                                </span>
-                              )}
-                            </div>
+                                  <p className="font-display text-lg font-black text-foreground">
+                                    {node.title}
+                                  </p>
 
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {meta.label} · {numberText(node.stamina_cost)} Stamina
-                              {progressRow?.completions
-                                ? ` · ${numberText(progressRow.completions)} clears`
-                                : ''}
-                            </p>
+                                  {completed && (
+                                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-200 font-bold uppercase">
+                                      <CheckCircle2 className="w-3 h-3" />
+                                      Path Cleared
+                                    </span>
+                                  )}
 
-                            <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
-                              {node.story_text}
-                            </p>
+                                  {!unlocked && (
+                                    <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] text-muted-foreground font-bold uppercase">
+                                      <Lock className="w-3 h-3" />
+                                      {lockInfo.reason || 'Locked'}
+                                    </span>
+                                  )}
+                                </div>
 
-                            {node.node_type === 'boss' && (
-                              <div className="mt-3 rounded-2xl border border-yellow-400/20 bg-yellow-500/10 p-3">
-                                {activeBoss ? (
-                                  <>
-                                    <p className="text-xs font-bold text-yellow-200">
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {meta.label} · {numberText(node.stamina_cost)} Stamina
+                                  {node.recommended_power ? ` · Recommended Power ${numberText(node.recommended_power)}` : ''}
+                                  {progressRow?.completions ? ` · ${numberText(progressRow.completions)} clears` : ''}
+                                </p>
+
+                                <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+                                  {node.story_text}
+                                </p>
+
+                                {activeBoss && (
+                                  <div className="mt-3 rounded-2xl border border-red-400/30 bg-red-500/10 p-3">
+                                    <p className="text-xs font-bold text-red-200">
                                       Active Boss: {activeBoss.boss_name}
                                     </p>
-                                    <div className="mt-2 h-2 rounded-full bg-muted overflow-hidden">
+                                    <div className="h-2 rounded-full bg-background/70 overflow-hidden mt-2">
                                       <div
-                                        className="h-full bg-gradient-to-r from-yellow-500 to-orange-400"
-                                        style={{
-                                          width: `${getHpPercent(
-                                            activeBoss.current_hp,
-                                            activeBoss.max_hp
-                                          )}%`,
-                                        }}
+                                        className="h-full bg-gradient-to-r from-red-600 to-fuchsia-500"
+                                        style={{ width: `${getHpPercent(activeBoss.current_hp, activeBoss.max_hp)}%` }}
                                       />
                                     </div>
                                     <p className="text-[11px] text-muted-foreground mt-1">
-                                      HP {numberText(activeBoss.current_hp)} / {numberText(activeBoss.max_hp)} · Attack until defeated to claim rewards.
+                                      HP {numberText(activeBoss.current_hp)} / {numberText(activeBoss.max_hp)}
                                     </p>
-                                  </>
-                                ) : (
-                                  <p className="text-xs font-bold text-yellow-200">
-                                    Boss nodes now spawn a monster. Awaken it, attack until defeated, then claim the boss rewards.
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="md:w-[180px]">
+                                <Button
+                                  disabled={!unlocked || processing}
+                                  onClick={() => openNode(node)}
+                                  className="w-full gap-2"
+                                >
+                                  {processing ? (
+                                    'Clearing...'
+                                  ) : completed ? (
+                                    <>
+                                      Replay
+                                      <RefreshCcw className="w-4 h-4" />
+                                    </>
+                                  ) : activeBoss ? (
+                                    <>
+                                      Attack
+                                      <Swords className="w-4 h-4" />
+                                    </>
+                                  ) : (
+                                    <>
+                                      Start
+                                      <ChevronRight className="w-4 h-4" />
+                                    </>
+                                  )}
+                                </Button>
+
+                                {completed && (
+                                  <p className="text-[10px] text-muted-foreground text-center mt-2">
+                                    Repeat rewards only on this path.
                                   </p>
                                 )}
                               </div>
-                            )}
-                          </div>
-
-                          <div className="md:w-[180px]">
-                            <Button
-                              disabled={!unlocked || processing}
-                              onClick={() => openNode(node)}
-                              className="w-full gap-2"
-                            >
-                              {processing ? (
-                                'Clearing...'
-                              ) : completed ? (
-                                <>
-                                  Replay
-                                  <RefreshCcw className="w-4 h-4" />
-                                </>
-                              ) : (
-                                <>
-                                  Start
-                                  <ChevronRight className="w-4 h-4" />
-                                </>
-                              )}
-                            </Button>
-
-                            {completed && (
-                              <p className="text-[10px] text-muted-foreground text-center mt-2">
-                                Replays give smaller repeat rewards.
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </motion.div>
-                    );
-                  })}
-                </AnimatePresence>
-              </div>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                    </AnimatePresence>
+                  </div>
+                </>
+              )}
             </div>
           </section>
 
@@ -1785,26 +2158,48 @@ export default function Quests() {
               <div className="p-5 border-b border-yellow-500/20 bg-yellow-500/5">
                 <div className="flex items-center gap-2 text-yellow-300 uppercase tracking-[0.25em] text-xs font-bold">
                   <Trophy className="w-4 h-4" />
-                  Milestones
+                  Campaign Structure
+                </div>
+                <h3 className="font-display text-2xl font-black mt-2">
+                  Book → Chapter → Node
+                </h3>
+              </div>
+
+              <div className="p-5 space-y-3">
+                <div className="rounded-2xl border border-border bg-background/50 p-4">
+                  <p className="font-display font-black text-primary">
+                    Long-Term Campaign
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    6 Books · 5 Chapters per Book · 10 Nodes per Chapter. Each faction gets a book, then the final Singularity book closes the arc.
+                  </p>
                 </div>
 
-                <h3 className="font-display text-2xl font-black mt-2">
-                  Premium Goals
-                </h3>
+                <div className="rounded-2xl border border-purple-400/30 bg-purple-500/10 p-4">
+                  <p className="font-display font-black text-primary">
+                    Storyline Farming
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    New storyline paths can earn their own first-clear rewards. Completed paths become repeat reward routes.
+                  </p>
+                </div>
+              </div>
+            </section>
 
-                <p className="text-sm text-muted-foreground mt-2">
-                  Better rewards should come from weekly pushes, boss clears, first clears, and milestones.
-                </p>
+            <section className="rounded-3xl border border-yellow-500/30 bg-card/90 shadow-2xl overflow-hidden">
+              <div className="p-5 border-b border-yellow-500/20 bg-yellow-500/5">
+                <div className="flex items-center gap-2 text-yellow-300 uppercase tracking-[0.25em] text-xs font-bold">
+                  <Trophy className="w-4 h-4" />
+                  Milestones
+                </div>
+                <h3 className="font-display text-2xl font-black mt-2">Premium Goals</h3>
               </div>
 
               <div className="p-5 space-y-3">
                 {milestones.map((milestone) => {
                   const current = getMilestoneProgress(milestone);
                   const required = Number(milestone.required_count || 1);
-                  const percent = Math.max(
-                    0,
-                    Math.min(100, Math.floor((current / required) * 100))
-                  );
+                  const percent = Math.max(0, Math.min(100, Math.floor((current / required) * 100)));
                   const claimed = isMilestoneClaimed(milestone);
                   const ready = current >= required && !claimed;
                   const claiming = claimingMilestoneId === milestone.id;
@@ -1822,14 +2217,9 @@ export default function Quests() {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="font-display font-black text-primary">
-                            {milestone.title}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {milestone.description}
-                          </p>
+                          <p className="font-display font-black text-primary">{milestone.title}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{milestone.description}</p>
                         </div>
-
                         {claimed ? (
                           <CheckCircle2 className="w-5 h-5 text-emerald-300 flex-shrink-0" />
                         ) : (
@@ -1839,23 +2229,11 @@ export default function Quests() {
 
                       <div className="mt-3">
                         <div className="flex justify-between text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
-                          <span>
-                            {milestone.cadence} ·{' '}
-                            {String(milestone.requirement_type || '').replaceAll(
-                              '_',
-                              ' '
-                            )}
-                          </span>
-                          <span>
-                            {numberText(current)}/{numberText(required)}
-                          </span>
+                          <span>{milestone.cadence}</span>
+                          <span>{numberText(current)}/{numberText(required)}</span>
                         </div>
-
                         <div className="h-2 rounded-full bg-muted overflow-hidden">
-                          <div
-                            className="h-full bg-gradient-to-r from-yellow-500 to-primary"
-                            style={{ width: `${percent}%` }}
-                          />
+                          <div className="h-full bg-gradient-to-r from-yellow-500 to-primary" style={{ width: `${percent}%` }} />
                         </div>
                       </div>
 
@@ -1865,40 +2243,11 @@ export default function Quests() {
                         disabled={!ready || claiming}
                         onClick={() => claimMilestone(milestone)}
                       >
-                        {claiming
-                          ? 'Claiming...'
-                          : claimed
-                            ? 'Claimed'
-                            : ready
-                              ? 'Claim Reward'
-                              : 'Locked'}
+                        {claiming ? 'Claiming...' : claimed ? 'Claimed' : ready ? 'Claim Reward' : 'Locked'}
                       </Button>
                     </div>
                   );
                 })}
-
-                {!milestones.length && (
-                  <p className="text-sm text-muted-foreground">
-                    No milestones found. Run the milestone seed SQL.
-                  </p>
-                )}
-              </div>
-            </section>
-
-            <section className="rounded-3xl border border-primary/20 bg-card/90 shadow-2xl p-5">
-              <div className="flex items-start gap-3">
-                <Sparkles className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-display font-black text-primary">
-                    Economy Rule Active
-                  </p>
-                  <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
-                    Regular questing gives controlled progression. Premium rewards
-                    come from first clears, boss nodes, weekly goals, milestones,
-                    and rare bonus rolls. Quest card drops are limited to base
-                    Vessel cards from the quest reward pool.
-                  </p>
-                </div>
               </div>
             </section>
           </aside>
@@ -1908,17 +2257,17 @@ export default function Quests() {
       <QuestActionModal
         node={activeNode}
         open={!!activeNode}
-        stamina={profile?.stamina ?? 0}
-        attackEnergy={profile?.attack_energy ?? 0}
-        activeBoss={activeNode ? bossInstanceByNodeId.get(activeNode.id) : null}
-        processing={!!processingNodeId}
-        spawning={!!spawningBossNodeId}
-        attacking={!!attackingBossId}
-        lastBossAction={lastBossAction}
         onClose={() => setActiveNode(null)}
         onComplete={completeNode}
         onSpawnBoss={spawnQuestBoss}
         onAttackBoss={attackQuestBoss}
+        processing={!!processingNodeId}
+        stamina={profile?.stamina || 0}
+        attackEnergy={profile?.attack_energy || 0}
+        activeBoss={activeNode ? bossInstanceByNodeId.get(activeNode.id) : null}
+        spawning={!!spawningBossNodeId}
+        attacking={!!attackingBossId}
+        lastBossAction={lastBossAction}
       />
 
       <ResultModal result={lastResult} onClose={() => setLastResult(null)} />
