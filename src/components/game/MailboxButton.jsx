@@ -4,74 +4,21 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 import { Mail } from 'lucide-react';
 
-function getWeekStart() {
-  const now = new Date();
-  const day = now.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  const monday = new Date(now);
-
-  monday.setDate(now.getDate() + diff);
-  monday.setHours(0, 0, 0, 0);
-
-  return monday.toISOString().split('T')[0];
-}
-
-function getTodayDayNum() {
-  const d = new Date().getDay();
-  return d === 0 ? 7 : d;
-}
-
 export default function MailboxButton() {
   const queryClient = useQueryClient();
 
-  const weekStart = getWeekStart();
-  const todayDay = getTodayDayNum();
-  const todayStr = new Date().toISOString().split('T')[0];
-
-  const { data: loginRecord = null } = useQuery({
-    queryKey: ['loginRecord', weekStart],
-    staleTime: 30000,
-    queryFn: async () => {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-
-      if (userError) {
-        throw userError;
-      }
-
-      if (!user) {
-        return null;
-      }
-
-      const { data, error } = await supabase
-        .from('player_login_records')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('week_start', weekStart)
-        .maybeSingle();
-
-      if (error) {
-        throw error;
-      }
-
-      return data;
-    },
-  });
-
   useEffect(() => {
     const channel = supabase
-      .channel('mailbox-login-record-realtime')
+      .channel('mailbox-button-realtime')
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'player_login_records',
+          table: 'mailbox_messages',
         },
         () => {
-          queryClient.invalidateQueries({ queryKey: ['loginRecord'] });
+          queryClient.invalidateQueries({ queryKey: ['mailboxUnreadCount'] });
         }
       )
       .subscribe();
@@ -81,21 +28,42 @@ export default function MailboxButton() {
     };
   }, [queryClient]);
 
-  const claimedDays = loginRecord?.claimed_days || [];
+  const { data: claimableCount = 0 } = useQuery({
+    queryKey: ['mailboxUnreadCount'],
+    staleTime: 30000,
+    queryFn: async () => {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-  const hasUnclaimed =
-    !!loginRecord &&
-    !claimedDays.includes(todayDay) &&
-    loginRecord.last_claim_date !== todayStr;
+      if (userError) throw userError;
+      if (!user) return 0;
+
+      const { count, error } = await supabase
+        .from('mailbox_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('status', 'claimable');
+
+      if (error) throw error;
+
+      return count || 0;
+    },
+  });
 
   return (
-    <Link to="/mailbox">
-      <div className="relative flex flex-col items-center justify-center w-12 h-12 rounded-xl bg-card/80 border border-border hover:border-primary/50 transition-all">
-        <Mail className="w-5 h-5 text-muted-foreground" />
+    <Link to="/mailbox" aria-label="Open mailbox">
+      <div className="relative flex h-12 w-12 flex-col items-center justify-center rounded-xl border border-border bg-card/80 transition-all hover:border-primary/50 hover:bg-primary/10">
+        <Mail
+          className={`h-5 w-5 ${
+            claimableCount > 0 ? 'text-primary' : 'text-muted-foreground'
+          }`}
+        />
 
-        {hasUnclaimed && (
-          <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 rounded-full text-[9px] font-bold text-white flex items-center justify-center">
-            1
+        {claimableCount > 0 && (
+          <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-black text-white">
+            {claimableCount > 9 ? '9+' : claimableCount}
           </span>
         )}
       </div>

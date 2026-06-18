@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import NavBar from './NavBar';
 import PlayerBar from './PlayerBar';
+import DailyLoginModal from './DailyLoginModal';
 import ChooseFaction from '@/components/auth/ChooseFaction';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
@@ -279,14 +280,13 @@ export default function GameLayout() {
         onProfileClick={() => setProfileOpen(true)}
       />
 
-      {/* Let each page control its own width.
-          This restores wide desktop pages like Quests while keeping mobile-first pages
-          constrained by their own max-w-lg wrappers. */}
       <main className="flex-1 w-full pb-20 overflow-y-auto">
         <Outlet context={{ profile: activeProfile }} />
       </main>
 
       <NavBar />
+
+      <DailyLoginModal />
     </div>
   );
 }
