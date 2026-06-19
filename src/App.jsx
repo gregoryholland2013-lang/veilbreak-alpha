@@ -26,42 +26,44 @@ import RaidEvent from './pages/RaidEvent';
 import Inventory from '@/pages/Inventory';
 import Shop from './pages/Shop';
 
-const AuthenticatedApp = () => {
+function ProtectedGameLayout() {
   return (
-    <Routes>
-      <Route path="/reset-password" element={<ResetPassword />} />
-
-      <Route element={<GameLayout />}>
-        <Route path="/" element={<Home />} />
-        <Route path="/collection" element={<Collection />} />
-        <Route path="/summon" element={<Summon />} />
-        <Route path="/shop" element={<Shop />} />
-        <Route path="/deck-builder" element={<DeckBuilder />} />
-        <Route path="/battle" element={<Battle />} />
-        <Route path="/quests" element={<Quests />} />
-        <Route path="/mailbox" element={<Mailbox />} />
-        <Route path="/daily-login" element={<DailyLogin />} />
-        <Route path="/enhance" element={<Enhance />} />
-        <Route path="/social" element={<Social />} />
-        <Route path="/guild" element={<GuildPage />} />
-        <Route path="/event" element={<EventDungeon />} />
-        <Route path="/holy-wars" element={<HolyWars />} />
-        <Route path="/raid-event" element={<RaidEvent />} />
-        <Route path="/inventory" element={<Inventory />} />
-      </Route>
-
-      <Route path="*" element={<PageNotFound />} />
-    </Routes>
+    <AuthGate>
+      <GameLayout />
+    </AuthGate>
   );
-};
+}
 
 function App() {
   return (
     <QueryClientProvider client={queryClientInstance}>
       <Router>
-        <AuthGate>
-          <AuthenticatedApp />
-        </AuthGate>
+        <Routes>
+          {/* Public route: must stay outside AuthGate so password recovery links can open. */}
+          <Route path="/reset-password" element={<ResetPassword />} />
+
+          {/* Protected game routes */}
+          <Route element={<ProtectedGameLayout />}>
+            <Route path="/" element={<Home />} />
+            <Route path="/collection" element={<Collection />} />
+            <Route path="/summon" element={<Summon />} />
+            <Route path="/shop" element={<Shop />} />
+            <Route path="/deck-builder" element={<DeckBuilder />} />
+            <Route path="/battle" element={<Battle />} />
+            <Route path="/quests" element={<Quests />} />
+            <Route path="/mailbox" element={<Mailbox />} />
+            <Route path="/daily-login" element={<DailyLogin />} />
+            <Route path="/enhance" element={<Enhance />} />
+            <Route path="/social" element={<Social />} />
+            <Route path="/guild" element={<GuildPage />} />
+            <Route path="/event" element={<EventDungeon />} />
+            <Route path="/holy-wars" element={<HolyWars />} />
+            <Route path="/raid-event" element={<RaidEvent />} />
+            <Route path="/inventory" element={<Inventory />} />
+          </Route>
+
+          <Route path="*" element={<PageNotFound />} />
+        </Routes>
       </Router>
 
       <Toaster />
