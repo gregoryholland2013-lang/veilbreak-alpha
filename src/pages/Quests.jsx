@@ -343,11 +343,11 @@ function QuestActionModal({
 
   if (isBoss) {
     return (
-      <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4">
+      <div className="fixed inset-0 z-50 bg-black/85 flex items-start sm:items-center justify-center p-2 sm:p-4 overflow-y-auto overscroll-contain">
         <motion.div
           initial={{ opacity: 0, scale: 0.94, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          className="w-full max-w-3xl rounded-3xl border border-yellow-400/40 shadow-2xl overflow-hidden bg-card max-h-[92vh] overflow-y-auto"
+          className="w-full sm:max-w-3xl h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[calc(100dvh-1rem)] rounded-none sm:rounded-3xl border border-yellow-400/40 shadow-2xl overflow-y-auto bg-card pb-[calc(env(safe-area-inset-bottom)+1rem)]"
         >
           <div className="relative p-5 md:p-6 border-b border-yellow-400/20 bg-yellow-500/10">
             <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/10 via-transparent to-red-500/10" />
@@ -419,7 +419,7 @@ function QuestActionModal({
                 <Button
                   disabled={spawning || !canSpawnBoss}
                   onClick={() => onSpawnBoss(node)}
-                  className="w-full h-14 text-base font-black gap-2 mt-5 bg-yellow-400 hover:bg-yellow-300 text-black"
+                  className="w-full h-14 text-base font-black gap-2 mt-5 sticky bottom-3 z-20 shadow-2xl bg-yellow-400 hover:bg-yellow-300 text-black"
                 >
                   {spawning ? 'Awakening Boss...' : `Awaken Boss - ${numberText(node.stamina_cost)} Stamina`}
                   {!spawning && <ChevronRight className="w-5 h-5" />}
@@ -510,7 +510,7 @@ function QuestActionModal({
                 <Button
                   disabled={attacking || !canAttackBoss}
                   onClick={() => onAttackBoss(activeBoss)}
-                  className="w-full h-14 text-base font-black gap-2 bg-yellow-400 hover:bg-yellow-300 text-black"
+                  className="w-full h-14 text-base font-black gap-2 sticky bottom-3 z-20 shadow-2xl bg-yellow-400 hover:bg-yellow-300 text-black"
                 >
                   {attacking ? 'Attacking Boss...' : `Attack Boss - ${numberText(bossAttackCost)} ATK`}
                   {!attacking && <ChevronRight className="w-5 h-5" />}
@@ -525,11 +525,11 @@ function QuestActionModal({
 
   if (isBattle) {
     return (
-      <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4">
+      <div className="fixed inset-0 z-50 bg-black/85 flex items-start sm:items-center justify-center p-2 sm:p-4 overflow-y-auto overscroll-contain">
         <motion.div
           initial={{ opacity: 0, scale: 0.94, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          className="w-full max-w-2xl rounded-3xl border border-red-400/40 shadow-2xl overflow-hidden bg-card"
+          className="w-full sm:max-w-2xl h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[calc(100dvh-1rem)] rounded-none sm:rounded-3xl border border-red-400/40 shadow-2xl overflow-y-auto bg-card pb-[calc(env(safe-area-inset-bottom)+1rem)]"
         >
           <div className="relative p-5 md:p-6 border-b border-red-400/20 bg-red-500/10">
             <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-red-500/10" />
@@ -608,7 +608,7 @@ function QuestActionModal({
             <Button
               disabled={processing || !canStart}
               onClick={() => onComplete(node)}
-              className="w-full h-14 text-base font-black gap-2"
+              className="w-full h-14 text-base font-black gap-2 sticky bottom-3 z-20 shadow-2xl"
             >
               {processing ? 'Resolving Battle...' : 'Enter Battle'}
               {!processing && <ChevronRight className="w-5 h-5" />}
@@ -620,11 +620,11 @@ function QuestActionModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-start sm:items-center justify-center p-2 sm:p-4 overflow-y-auto overscroll-contain">
       <motion.div
         initial={{ opacity: 0, scale: 0.94, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="w-full max-w-xl rounded-3xl border border-primary/40 bg-card shadow-2xl overflow-hidden"
+        className="w-full sm:max-w-xl h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[calc(100dvh-1rem)] rounded-none sm:rounded-3xl border border-primary/40 bg-card shadow-2xl overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+1rem)]"
       >
         <div className="relative p-5 md:p-6 border-b border-border bg-primary/5">
           <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-purple-500/10" />
@@ -707,7 +707,7 @@ function QuestActionModal({
           <Button
             disabled={processing || !canStart}
             onClick={() => onComplete(node)}
-            className="w-full h-12 gap-2"
+            className="w-full h-12 gap-2 sticky bottom-3 z-20 shadow-2xl"
           >
             {processing ? 'Resolving Node...' : 'Begin Expedition'}
             {!processing && <ChevronRight className="w-4 h-4" />}
@@ -730,11 +730,11 @@ function ResultModal({ result, onClose }) {
     : [];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-start sm:items-center justify-center p-2 sm:p-4 overflow-y-auto overscroll-contain">
       <motion.div
         initial={{ opacity: 0, scale: 0.94, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="w-full max-w-md rounded-3xl border border-primary/40 bg-card shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
+        className="w-full sm:max-w-md h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[calc(100dvh-1rem)] rounded-none sm:rounded-3xl border border-primary/40 bg-card shadow-2xl overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+1rem)]"
       >
         <div className="relative p-5 border-b border-border bg-primary/5">
           <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-purple-500/10" />
