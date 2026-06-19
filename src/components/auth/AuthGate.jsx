@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Sparkles } from 'lucide-react';
+import { ArrowLeft, Mail, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
 const HERO_IMAGE =
@@ -19,11 +19,15 @@ function isValidUsername(value) {
   return /^[a-z0-9_]{3,20}$/.test(value);
 }
 
+function getResetRedirectUrl() {
+  return `${window.location.origin}/reset-password`;
+}
+
 export default function AuthGate({ children }) {
   const [session, setSession] = useState(null);
   const [loadingSession, setLoadingSession] = useState(true);
 
-  const [mode, setMode] = useState('login'); // login | signup
+  const [mode, setMode] = useState('login'); // login | signup | forgot
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -113,8 +117,44 @@ export default function AuthGate({ children }) {
     }
   }
 
+  const sendPasswordReset = async (event) => {
+    event.preventDefault();
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail) {
+      toast.error('Enter your email address');
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo: getResetRedirectUrl(),
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      toast.success('Password reset email sent. Check your inbox.');
+      setMode('login');
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Could not send password reset email');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const submit = async (e) => {
     e.preventDefault();
+
+    if (mode === 'forgot') {
+      await sendPasswordReset(e);
+      return;
+    }
 
     const cleanEmail = email.trim().toLowerCase();
     const cleanUsername = normalizeUsername(username);
@@ -131,7 +171,9 @@ export default function AuthGate({ children }) {
       }
 
       if (!isValidUsername(cleanUsername)) {
-        toast.error('Username must be 3-20 characters using letters, numbers, or underscores only.');
+        toast.error(
+          'Username must be 3-20 characters using letters, numbers, or underscores only.'
+        );
         return;
       }
     }
@@ -211,7 +253,9 @@ export default function AuthGate({ children }) {
 
       if (error.message?.toLowerCase().includes('duplicate key')) {
         toast.error('That username is already taken.');
-      } else if (error.message?.toLowerCase().includes('invalid login credentials')) {
+      } else if (
+        error.message?.toLowerCase().includes('invalid login credentials')
+      ) {
         toast.error(
           'Invalid email or password. If this is a new account, use Sign Up first.'
         );
@@ -240,6 +284,8 @@ export default function AuthGate({ children }) {
     return children;
   }
 
+  const isForgotMode = mode === 'forgot';
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-background">
       <div className="fixed inset-0 z-0 pointer-events-none">
@@ -257,7 +303,11 @@ export default function AuthGate({ children }) {
         <div className="w-full max-w-sm rounded-2xl border border-primary/30 bg-background/70 backdrop-blur-md shadow-2xl p-5 space-y-5">
           <div className="text-center space-y-2">
             <div className="w-14 h-14 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center mx-auto">
-              <Sparkles className="w-7 h-7 text-primary" />
+              {isForgotMode ? (
+                <Mail className="w-7 h-7 text-primary" />
+              ) : (
+                <Sparkles className="w-7 h-7 text-primary" />
+              )}
             </div>
 
             <div>
@@ -266,36 +316,50 @@ export default function AuthGate({ children }) {
               </h1>
 
               <p className="text-[11px] tracking-[0.28em] uppercase text-muted-foreground">
-                Into the Singularity
+                {isForgotMode ? 'Reset Password' : 'Into the Singularity'}
               </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 rounded-xl border border-border overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setMode('login')}
-              className={`h-10 text-xs font-bold transition-all ${
-                mode === 'login'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-card/70 text-muted-foreground'
-              }`}
-            >
-              Login
-            </button>
+          {!isForgotMode && (
+            <div className="grid grid-cols-2 rounded-xl border border-border overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setMode('login')}
+                className={`h-10 text-xs font-bold transition-all ${
+                  mode === 'login'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-card/70 text-muted-foreground'
+                }`}
+              >
+                Login
+              </button>
 
-            <button
-              type="button"
-              onClick={() => setMode('signup')}
-              className={`h-10 text-xs font-bold transition-all ${
-                mode === 'signup'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-card/70 text-muted-foreground'
-              }`}
-            >
-              Sign Up
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => setMode('signup')}
+                className={`h-10 text-xs font-bold transition-all ${
+                  mode === 'signup'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-card/70 text-muted-foreground'
+                }`}
+              >
+                Sign Up
+              </button>
+            </div>
+          )}
+
+          {isForgotMode && (
+            <div className="rounded-xl border border-primary/25 bg-primary/10 p-3">
+              <p className="text-sm font-display font-black text-primary">
+                Forgot your password?
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Enter your account email and we will send you a secure password
+                reset link.
+              </p>
+            </div>
+          )}
 
           <form onSubmit={submit} className="space-y-3">
             <div className="space-y-1">
@@ -322,7 +386,9 @@ export default function AuthGate({ children }) {
                 <Input
                   type="text"
                   value={username}
-                  onChange={(e) => setUsername(normalizeUsername(e.target.value))}
+                  onChange={(e) =>
+                    setUsername(normalizeUsername(e.target.value))
+                  }
                   placeholder="letters_numbers_only"
                   className="h-10"
                   autoComplete="username"
@@ -335,33 +401,60 @@ export default function AuthGate({ children }) {
               </div>
             )}
 
-            <div className="space-y-1">
-              <p className="text-xs font-semibold text-muted-foreground">
-                Password
-              </p>
+            {!isForgotMode && (
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-muted-foreground">
+                  Password
+                </p>
 
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 6 characters"
-                className="h-10"
-                autoComplete={
-                  mode === 'signup' ? 'new-password' : 'current-password'
-                }
-              />
-            </div>
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 6 characters"
+                  className="h-10"
+                  autoComplete={
+                    mode === 'signup' ? 'new-password' : 'current-password'
+                  }
+                />
+              </div>
+            )}
 
             <Button type="submit" disabled={saving} className="w-full">
               {saving
-                ? mode === 'signup'
-                  ? 'Creating account…'
-                  : 'Logging in…'
-                : mode === 'signup'
-                  ? 'Create Account'
-                  : 'Enter Veilbreak'}
+                ? isForgotMode
+                  ? 'Sending reset email…'
+                  : mode === 'signup'
+                    ? 'Creating account…'
+                    : 'Logging in…'
+                : isForgotMode
+                  ? 'Send Reset Email'
+                  : mode === 'signup'
+                    ? 'Create Account'
+                    : 'Enter Veilbreak'}
             </Button>
           </form>
+
+          {!isForgotMode && mode === 'login' && (
+            <button
+              type="button"
+              onClick={() => setMode('forgot')}
+              className="w-full text-center text-xs font-bold text-primary hover:text-primary/80"
+            >
+              Forgot password?
+            </button>
+          )}
+
+          {isForgotMode && (
+            <button
+              type="button"
+              onClick={() => setMode('login')}
+              className="mx-auto flex items-center justify-center gap-2 text-xs font-bold text-muted-foreground hover:text-foreground"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Back to login
+            </button>
+          )}
 
           <p className="text-[10px] text-center text-muted-foreground leading-relaxed">
             Closed Alpha Build — progress may reset during testing.

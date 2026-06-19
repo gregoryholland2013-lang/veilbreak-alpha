@@ -16,6 +16,7 @@ import Battle from './pages/Battle.jsx';
 import Quests from './pages/Quests';
 import Mailbox from './pages/Mailbox';
 import DailyLogin from './pages/DailyLogin';
+import ResetPassword from './pages/ResetPassword';
 import Enhance from './pages/Enhance';
 import Social from './pages/Social';
 import GuildPage from './pages/Guild';
@@ -28,6 +29,8 @@ import Shop from './pages/Shop';
 const AuthenticatedApp = () => {
   return (
     <Routes>
+      <Route path="/reset-password" element={<ResetPassword />} />
+
       <Route element={<GameLayout />}>
         <Route path="/" element={<Home />} />
         <Route path="/collection" element={<Collection />} />
