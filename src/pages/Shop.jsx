@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Coins,
   Flame,
+  RefreshCw,
 } from 'lucide-react';
 
 import PageHeader from '@/components/game/PageHeader';
@@ -52,6 +53,14 @@ const featuredPacks = [
 ];
 
 const shopItems = [
+  {
+    sku: 'veil_recalibration_token',
+    title: 'Veil Recalibration Token',
+    price: '$1.99',
+    desc: 'Fully reset allocated Attributes and rebuild your Stamina, ATK, and DEF spread.',
+    icon: RefreshCw,
+    iconClass: 'text-primary',
+  },
   {
     sku: 'gem_cache',
     title: 'Gem Cache',

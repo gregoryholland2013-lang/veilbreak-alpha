@@ -63,26 +63,14 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get('Authorization');
 
     if (!authHeader) {
-      return new Response(
-        JSON.stringify({
-          error: 'Missing auth header',
-        }),
-        {
-          status: 401,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      return new Response(JSON.stringify({ error: 'Missing auth header' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const supabaseUserClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: {
-        headers: {
-          Authorization: authHeader,
-        },
-      },
+      global: { headers: { Authorization: authHeader } },
     });
 
     const {
@@ -91,64 +79,36 @@ Deno.serve(async (req) => {
     } = await supabaseUserClient.auth.getUser();
 
     if (userError || !user) {
-      return new Response(
-        JSON.stringify({
-          error: 'Not authenticated',
-        }),
-        {
-          status: 401,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      return new Response(JSON.stringify({ error: 'Not authenticated' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const body = await req.json();
     const paypalOrderId = body?.paypalOrderId;
 
     if (!paypalOrderId) {
-      return new Response(
-        JSON.stringify({
-          error: 'Missing PayPal order ID',
-        }),
-        {
-          status: 400,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      return new Response(JSON.stringify({ error: 'Missing PayPal order ID' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    const supabaseAdmin = createClient(
-      supabaseUrl,
-      supabaseServiceRoleKey
-    );
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
 
-    const { data: paymentOrder, error: paymentOrderError } =
-      await supabaseAdmin
-        .from('payment_orders')
-        .select('*')
-        .eq('paypal_order_id', paypalOrderId)
-        .eq('user_id', user.id)
-        .single();
+    const { data: paymentOrder, error: paymentOrderError } = await supabaseAdmin
+      .from('payment_orders')
+      .select('*')
+      .eq('paypal_order_id', paypalOrderId)
+      .eq('user_id', user.id)
+      .single();
 
     if (paymentOrderError || !paymentOrder) {
-      return new Response(
-        JSON.stringify({
-          error: 'Payment order not found',
-        }),
-        {
-          status: 404,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      return new Response(JSON.stringify({ error: 'Payment order not found' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     if (paymentOrder.granted_at) {
@@ -156,13 +116,11 @@ Deno.serve(async (req) => {
         JSON.stringify({
           ok: true,
           message: 'Purchase was already granted.',
+          grant: paymentOrder.reward_summary || null,
         }),
         {
           status: 200,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         }
       );
     }
@@ -197,8 +155,7 @@ Deno.serve(async (req) => {
       throw new Error('Could not capture PayPal order');
     }
 
-    const capture =
-      captureData?.purchase_units?.[0]?.payments?.captures?.[0];
+    const capture = captureData?.purchase_units?.[0]?.payments?.captures?.[0];
 
     const captureStatus = capture?.status;
     const captureId = capture?.id;
@@ -231,9 +188,7 @@ Deno.serve(async (req) => {
 
     const { data: grantData, error: grantError } = await supabaseAdmin.rpc(
       'grant_store_purchase_reward',
-      {
-        p_payment_order_id: paymentOrder.id,
-      }
+      { p_payment_order_id: paymentOrder.id }
     );
 
     if (grantError) {
@@ -244,31 +199,20 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         ok: true,
-        message: 'Purchase complete. Gems added.',
+        message: 'Purchase complete. Reward delivered.',
         grant: grantData,
       }),
       {
         status: 200,
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
-        },
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       }
     );
   } catch (error) {
     console.error('paypal-capture-order error:', error);
 
-    return new Response(
-      JSON.stringify({
-        error: error?.message || 'Server error',
-      }),
-      {
-        status: 500,
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
+    return new Response(JSON.stringify({ error: error?.message || 'Server error' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
 });
