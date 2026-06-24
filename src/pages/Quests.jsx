@@ -916,15 +916,25 @@ function QuestPath({ nodes, completedNodeIds, nextNodeId }) {
   );
 }
 
+function getCurrentWeekStartDate() {
+  const now = new Date();
+
+  // Supabase/Postgres current_date normally runs in UTC, so use UTC here too.
+  const utcDay = now.getUTCDay(); // Sunday = 0, Monday = 1
+  const diff = utcDay === 0 ? -6 : 1 - utcDay;
+
+  const weekStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  );
+
+  weekStart.setUTCDate(weekStart.getUTCDate() + diff);
+
+  return weekStart.toISOString().slice(0, 10);
+}
+
 function getPeriodKey(cadence) {
   if (cadence === 'weekly') {
-    const now = new Date();
-    const oneJan = new Date(now.getFullYear(), 0, 1);
-    const week = Math.ceil(
-      ((now - oneJan) / 86400000 + oneJan.getDay() + 1) / 7
-    );
-
-    return `${now.getFullYear()}-W${String(week).padStart(2, '0')}`;
+    return getCurrentWeekStartDate();
   }
 
   if (cadence === 'event') return 'event';
@@ -998,6 +1008,7 @@ export default function Quests() {
         milestonesResponse,
         claimedResponse,
         bossInstancesResponse,
+        weeklyProgressResponse,
       ] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', userId).maybeSingle(),
 
@@ -1085,6 +1096,13 @@ export default function Quests() {
           .eq('user_id', userId)
           .eq('status', 'active')
           .order('spawned_at', { ascending: false }),
+
+        supabase
+          .from('player_quest_weekly_progress')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('week_start_date', getCurrentWeekStartDate())
+          .maybeSingle(),
       ]);
 
       const responses = [
@@ -1104,6 +1122,7 @@ export default function Quests() {
         milestonesResponse,
         claimedResponse,
         bossInstancesResponse,
+        weeklyProgressResponse,
       ];
 
       const failed = responses.find((response) => response.error);
@@ -1126,6 +1145,7 @@ export default function Quests() {
         milestones: milestonesResponse.data || [],
         claimedMilestones: claimedResponse.data || [],
         bossInstances: bossInstancesResponse.data || [],
+        weeklyProgress: weeklyProgressResponse.data || null,
       };
     },
   });
@@ -1146,6 +1166,7 @@ export default function Quests() {
   const milestones = data?.milestones || [];
   const claimedMilestones = data?.claimedMilestones || [];
   const bossInstances = data?.bossInstances || [];
+  const weeklyProgress = data?.weeklyProgress || null;
 
   const bookUnlockIds = useMemo(() => {
     return new Set(bookUnlocks.map((row) => row.book_id));
@@ -1378,9 +1399,12 @@ export default function Quests() {
     ) || null;
   }, [chapterPathProgressRows, selectedChapter, selectedActivePathKey]);
 
-  const weeklyQuestCount = useMemo(() => {
+  const allTimeQuestCount = useMemo(() => {
     return nodePathProgress.reduce((sum, row) => sum + Number(row.completions || 0), 0);
   }, [nodePathProgress]);
+
+  const weeklyQuestCount = Number(weeklyProgress?.quest_completions || 0);
+  const weeklyBossClearCount = Number(weeklyProgress?.boss_completions || 0);
 
   const bossClearCount = useMemo(() => {
     const bossNodeIds = new Set(
@@ -1696,15 +1720,27 @@ export default function Quests() {
   }
 
   function getMilestoneProgress(milestone) {
+    if (milestone.cadence === 'weekly') {
+      if (milestone.requirement_type === 'boss_nodes_completed') {
+        return weeklyBossClearCount;
+      }
+
+      return weeklyQuestCount;
+    }
+
     if (milestone.requirement_type === 'unique_nodes_completed') {
-      return new Set(nodePathProgress.filter((row) => row.first_completed_at).map((row) => row.node_id)).size;
+      return new Set(
+        nodePathProgress
+          .filter((row) => row.first_completed_at)
+          .map((row) => row.node_id)
+      ).size;
     }
 
     if (milestone.requirement_type === 'boss_nodes_completed') {
       return bossClearCount;
     }
 
-    return weeklyQuestCount;
+    return allTimeQuestCount;
   }
 
   function isMilestoneClaimed(milestone) {
