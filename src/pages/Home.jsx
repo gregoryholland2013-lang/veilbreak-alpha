@@ -17,12 +17,17 @@ import {
   ChevronRight,
   Crown,
   ShoppingBag,
+  MessageCircle,
+  ExternalLink,
 } from 'lucide-react';
 import { useProfile, usePlayerCards, useCards } from '@/hooks/useGameData';
 import MailboxButton from '@/components/game/MailboxButton';
 
 const HERO_IMAGE =
   'https://media.base44.com/images/public/69e667952dab314dabbd3859/12dd112d1_generated_image.png';
+
+const DISCORD_INVITE_URL =
+  import.meta.env.VITE_DISCORD_INVITE_URL || 'https://discord.gg/6GepRHPCbe';
 
 const RARITY_RANK = {
   vessel: 1,
@@ -450,6 +455,41 @@ export default function Home() {
 
             <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground transition-all group-hover:translate-x-1 group-hover:text-primary" />
           </Link>
+        </motion.section>
+
+        <motion.section
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.17 }}
+          className="mt-4 rounded-3xl border border-indigo-400/30 bg-indigo-500/10 p-4 shadow-xl backdrop-blur-md"
+        >
+          <button
+            type="button"
+            onClick={() =>
+              window.open(DISCORD_INVITE_URL, '_blank', 'noopener,noreferrer')
+            }
+            className="group flex w-full items-center gap-4 text-left"
+          >
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-indigo-300/35 bg-indigo-500/15 shadow-[0_0_20px_rgba(99,102,241,0.16)]">
+              <MessageCircle className="h-7 w-7 text-indigo-300" />
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] uppercase tracking-[0.25em] text-indigo-200/80">
+                Community
+              </p>
+
+              <h2 className="font-display text-lg font-black text-primary">
+                Join the Discord
+              </h2>
+
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Get updates, report bugs, talk trades, and follow alpha events.
+              </p>
+            </div>
+
+            <ExternalLink className="h-5 w-5 shrink-0 text-muted-foreground transition-all group-hover:translate-x-1 group-hover:text-primary" />
+          </button>
         </motion.section>
 
         <motion.section
