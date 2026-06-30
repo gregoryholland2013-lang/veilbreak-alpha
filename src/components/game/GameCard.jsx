@@ -1,29 +1,12 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Sword, Shield, Heart, Lock } from 'lucide-react';
+import CardArtCanvas from '@/components/game/CardArtCanvas';
 import {
   getCoreFormMeta,
   getVeilRankMeta,
   MAX_VEIL_MARKS,
 } from '@/utils/cardCosmetics';
-
-const elementIcons = {
-  fire: '🔥',
-  water: '💧',
-  earth: '🌿',
-  light: '✨',
-  dark: '🌑',
-  lightning: '⚡',
-};
-
-const elementBg = {
-  fire: 'bg-gradient-to-br from-red-900/80 to-orange-900/60',
-  water: 'bg-gradient-to-br from-blue-900/80 to-cyan-900/60',
-  earth: 'bg-gradient-to-br from-green-900/80 to-emerald-900/60',
-  light: 'bg-gradient-to-br from-yellow-900/80 to-amber-900/60',
-  dark: 'bg-gradient-to-br from-purple-900/80 to-slate-900/60',
-  lightning: 'bg-gradient-to-br from-yellow-900/80 to-blue-900/60',
-};
 
 function getOwnedCardStat(playerCard, card, stat) {
   if (stat === 'attack') {
@@ -136,27 +119,15 @@ export default function GameCard({
   const isProtected = Boolean(playerCard?.is_protected);
 
   const sizeClasses = {
-    sm: 'w-24 h-36',
-    md: 'w-40 h-56',
-    lg: 'w-52 h-72',
-  };
-
-  const artHeight = {
-    sm: 'h-[55%]',
-    md: 'h-[58%]',
-    lg: 'h-[60%]',
+    sm: 'w-24',
+    md: 'w-40',
+    lg: 'w-52',
   };
 
   const statTextSize = {
     sm: 'text-[8px]',
     md: 'text-[9px]',
     lg: 'text-[10px]',
-  };
-
-  const nameTextSize = {
-    sm: 'text-[10px]',
-    md: 'text-[12px]',
-    lg: 'text-sm',
   };
 
   const cardSizeClass = sizeClasses[size] || sizeClasses.md;
@@ -167,83 +138,45 @@ export default function GameCard({
         whileHover={{ scale: 1.045, y: -5, transition: { duration: 0.18 } }}
         whileTap={{ scale: 0.97 }}
         onClick={onClick}
-        className={`absolute inset-0 cursor-pointer select-none overflow-hidden rounded-xl border-2 ${rank.border} ${rank.glow} bg-gradient-to-b ${rank.frame} transition-all duration-300`}
+        className={`relative cursor-pointer select-none ${rank.glow} transition-all duration-300`}
       >
-        {rank.shine && (
-          <motion.div
-            animate={{ x: ['-100%', '220%'] }}
-            transition={{
-              repeat: Infinity,
-              duration: 3,
-              ease: 'linear',
-              repeatDelay: 1.6,
-            }}
-            className="pointer-events-none absolute inset-0 z-20 skew-x-12 bg-gradient-to-r from-transparent via-white/18 to-transparent"
-          />
-        )}
-
-        <div
-          className={`relative ${
-            artHeight[size] || artHeight.md
-          } overflow-hidden`}
-        >
-          {card.image_url ? (
-            <img
-              src={card.image_url}
-              alt={card.name}
-              className="h-full w-full object-cover object-top scale-[1.02]"
+        <CardArtCanvas card={card} playerCard={playerCard} size={size}>
+          {rank.shine && (
+            <motion.div
+              animate={{ x: ['-120%', '220%'] }}
+              transition={{
+                repeat: Infinity,
+                duration: 3,
+                ease: 'linear',
+                repeatDelay: 1.6,
+              }}
+              className="pointer-events-none absolute inset-0 z-40 skew-x-12 bg-gradient-to-r from-transparent via-white/14 to-transparent"
             />
-          ) : (
-            <div
-              className={`flex h-full w-full items-center justify-center ${
-                elementBg[card.element] || elementBg.dark
-              }`}
-            >
-              <motion.span
-                animate={{ scale: [1, 1.08, 1] }}
-                transition={{ duration: 3, repeat: Infinity }}
-                className="text-5xl drop-shadow-lg"
-              >
-                {elementIcons[card.element] || '⚔️'}
-              </motion.span>
-            </div>
           )}
 
-          <div className="absolute inset-x-0 bottom-0 h-9 bg-gradient-to-t from-black/85 to-transparent" />
-
-          <div className="absolute left-1.5 top-1.5 z-30">
+          <div className="absolute left-1.5 top-1.5 z-50">
             <VeilMarks rank={rank} size={size} />
           </div>
 
           {playerCard && (
-            <div className="absolute right-1.5 top-1.5 z-30 rounded-md border border-white/10 bg-black/65 px-1.5 py-1 font-display text-[9px] font-black leading-none text-primary backdrop-blur-sm">
+            <div className="absolute right-[8%] top-[18%] z-50 rounded-md border border-white/10 bg-black/65 px-1.5 py-1 font-display text-[9px] font-black leading-none text-primary backdrop-blur-sm">
               Lv{level}
             </div>
           )}
 
           {isProtected && !actionSlot && showProtectionBadge && (
-            <div className="absolute right-1.5 top-8 z-30 flex h-5 w-5 items-center justify-center rounded-lg border border-primary/50 bg-black/75 backdrop-blur-sm">
+            <div className="absolute right-[8%] top-[27%] z-50 flex h-5 w-5 items-center justify-center rounded-lg border border-primary/50 bg-black/75 backdrop-blur-sm">
               <Lock className="h-3 w-3 text-primary" />
             </div>
           )}
 
-          <div className="absolute bottom-1 right-1 z-30">
+          <div className="absolute bottom-[24%] right-[8%] z-50">
             <FormPill form={form} size={size} />
           </div>
-        </div>
-
-        <div className="flex flex-col gap-1 px-2 pb-2 pt-1.5">
-          <h3
-            className={`truncate font-display font-black leading-tight text-foreground ${
-              nameTextSize[size] || nameTextSize.md
-            }`}
-          >
-            {card.name}
-          </h3>
 
           {showStats && (
             <div
-              className={`mt-0.5 flex flex-wrap gap-1.5 ${
+              className={`absolute bottom-[3.1%] left-[12%] right-[12%] z-50 flex justify-center gap-1.5 ${
                 statTextSize[size] || statTextSize.md
               }`}
             >
@@ -263,11 +196,11 @@ export default function GameCard({
               </span>
             </div>
           )}
-        </div>
 
-        <div
-          className={`absolute left-0 right-0 top-0 h-0.5 ${rank.edge} opacity-90`}
-        />
+          <div
+            className={`absolute left-0 right-0 top-0 z-40 h-0.5 ${rank.edge} opacity-70`}
+          />
+        </CardArtCanvas>
       </motion.div>
 
       {actionSlot && (

@@ -16,6 +16,7 @@ import {
 import { supabase } from '@/lib/supabaseClient';
 import CardProtectionButton from '@/components/cards/CardProtectionButton';
 import CardBack from '@/components/game/CardBack';
+import CardArtCanvas from '@/components/game/CardArtCanvas';
 
 const elementIcons = {
   fire: '🔥',
@@ -31,9 +32,11 @@ const rarityColors = {
   epic: 'bg-purple-500/20 text-purple-300 border-purple-400/30',
   legendary: 'bg-primary/20 text-primary border-primary/30',
 
-  // Veilbreak custom rarities fallback support
   normal: 'bg-muted text-muted-foreground',
   high_normal: 'bg-slate-500/20 text-slate-200 border-slate-400/30',
+  vessel: 'bg-slate-500/20 text-slate-200 border-slate-400/30',
+  awakened: 'bg-blue-500/20 text-blue-300 border-blue-400/30',
+  ascendant: 'bg-purple-500/20 text-purple-300 border-purple-400/30',
   super_rare: 'bg-blue-500/20 text-blue-300 border-blue-400/30',
   ultra_rare: 'bg-purple-500/20 text-purple-300 border-purple-400/30',
   ascended: 'bg-yellow-500/20 text-yellow-300 border-yellow-400/30',
@@ -102,15 +105,6 @@ export default function CardDetailModal({
     ? Math.min((playerCard.experience / xpNeeded) * 100, 100)
     : 0;
 
-  // New clean art priority:
-  // clean_art_url = future clean art with no name/border/emblem
-  // image_url/artwork_url/image = legacy fallback
-  const imageUrl =
-    card.clean_art_url ||
-    card.image_url ||
-    card.artwork_url ||
-    card.image;
-
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="bg-card border-border max-w-md max-h-[92vh] overflow-y-auto">
@@ -121,24 +115,21 @@ export default function CardDetailModal({
           </DialogTitle>
         </DialogHeader>
 
-        {/* Card Front / Back */}
-        <div className="relative w-full rounded-xl overflow-hidden bg-black/40 border border-border flex items-center justify-center">
-          {showBack ? (
+        {showBack ? (
+          <div className="relative w-full rounded-xl overflow-hidden bg-black/40 border border-border flex items-center justify-center">
             <CardBack card={card} lore={lore} loading={loreLoading} />
-          ) : imageUrl ? (
-            <img
-              src={imageUrl}
-              alt={card.name}
-              className="w-full max-h-[55vh] object-contain"
+          </div>
+        ) : (
+          <div className="mx-auto w-full max-w-[340px]">
+            <CardArtCanvas
+              card={card}
+              playerCard={playerCard}
+              size="detail"
+              className="border border-border"
             />
-          ) : (
-            <div className="w-full aspect-[2/3] bg-gradient-to-br from-secondary to-muted flex items-center justify-center">
-              <span className="text-6xl">{elementIcons[card.element]}</span>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* Flip / Lore Button */}
         <Button
           type="button"
           variant="outline"
@@ -158,7 +149,6 @@ export default function CardDetailModal({
           )}
         </Button>
 
-        {/* Info */}
         <div className="space-y-3">
           <div className="flex gap-2 flex-wrap">
             <Badge className={rarityColors[card.rarity] || rarityColors.common}>
@@ -166,9 +156,7 @@ export default function CardDetailModal({
             </Badge>
 
             {card.card_type && <Badge variant="outline">{card.card_type}</Badge>}
-
             {card.element && <Badge variant="outline">{card.element}</Badge>}
-
             {card.faction && <Badge variant="outline">{card.faction}</Badge>}
           </div>
 
@@ -193,7 +181,6 @@ export default function CardDetailModal({
             </div>
           )}
 
-          {/* Stats */}
           <div className="grid grid-cols-3 gap-2">
             <div className="bg-muted rounded-lg p-2.5 text-center">
               <Sword className="w-4 h-4 text-red-400 mx-auto mb-1" />
@@ -220,7 +207,6 @@ export default function CardDetailModal({
             </div>
           </div>
 
-          {/* Skill */}
           {card.skill_name && (
             <div className="bg-secondary/50 rounded-lg p-3 border border-border">
               <p className="text-xs font-bold text-accent-foreground mb-1">
@@ -232,7 +218,6 @@ export default function CardDetailModal({
             </div>
           )}
 
-          {/* Level & XP */}
           {playerCard && (
             <div className="space-y-2">
               <div className="flex justify-between text-xs">
