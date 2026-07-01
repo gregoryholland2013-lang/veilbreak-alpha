@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -12,19 +17,17 @@ import {
   ArrowUp,
   BookOpen,
   Image as ImageIcon,
+  Lock,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import CardProtectionButton from '@/components/cards/CardProtectionButton';
 import CardBack from '@/components/game/CardBack';
-import CardArtCanvas from '@/components/game/CardArtCanvas';
-
-const elementIcons = {
-  fire: '🔥',
-  water: '💧',
-  earth: '🌿',
-  light: '✨',
-  dark: '🌑',
-};
+import CardCanvas from '@/components/game/CardCanvas';
+import {
+  getCoreFormMeta,
+  getVeilRankMeta,
+  MAX_VEIL_MARKS,
+} from '@/utils/cardCosmetics';
 
 const rarityColors = {
   common: 'bg-muted text-muted-foreground',
@@ -48,6 +51,13 @@ const rarityColors = {
   singularity: 'bg-primary/20 text-primary border-primary/30',
 };
 
+const DETAIL_OVERLAYS = {
+  marks: { left: '5.2%', top: '4.5%' },
+  level: { right: '5.4%', top: '16.6%' },
+  form: { right: '5.6%', bottom: '18.7%' },
+  protect: { right: '5.7%', top: '28.6%' },
+};
+
 function getLoreStage(evolutionStage) {
   const normalized = String(evolutionStage || 'base').toLowerCase();
 
@@ -63,6 +73,122 @@ function getLoreStage(evolutionStage) {
   return stageMap[normalized] || 1;
 }
 
+function getOwnedCardStat(playerCard, card, stat) {
+  if (stat === 'attack') {
+    return Number(
+      playerCard?.attack ??
+        playerCard?.stage_base_attack ??
+        card?.base_attack ??
+        0
+    );
+  }
+
+  if (stat === 'defense') {
+    return Number(
+      playerCard?.defense ??
+        playerCard?.stage_base_defense ??
+        card?.base_defense ??
+        0
+    );
+  }
+
+  if (stat === 'hp') {
+    return Number(
+      playerCard?.hp ??
+        playerCard?.max_hp ??
+        playerCard?.stage_base_hp ??
+        card?.base_hp ??
+        0
+    );
+  }
+
+  return 0;
+}
+
+function VeilMarks({ rank }) {
+  return (
+    <div
+      title={`Veil Rank: ${rank.label} · ${rank.markCount} Veil Marks`}
+      className="flex items-center gap-1 rounded-full border border-white/10 bg-black/80 px-2 py-1.5 shadow-lg backdrop-blur-md"
+    >
+      {Array.from({ length: MAX_VEIL_MARKS }).map((_, index) => {
+        const filled = index < rank.markCount;
+        const isSingularityFinalMark =
+          rank.singularity && index === MAX_VEIL_MARKS - 1;
+
+        return (
+          <span
+            key={index}
+            className={`h-2.5 w-2.5 rounded-full border ${
+              filled ? rank.mark : rank.emptyMark
+            } ${
+              isSingularityFinalMark
+                ? 'scale-125 ring-1 ring-primary/70'
+                : ''
+            }`}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function FormPill({ form }) {
+  return (
+    <div
+      title={`Core Form: ${form.label}`}
+      className="rounded-full border border-primary/45 bg-black/85 px-2.5 py-1.5 text-[10px] font-display font-black leading-none text-primary shadow-lg backdrop-blur-md"
+    >
+      {form.pill}
+    </div>
+  );
+}
+
+function FramedCardPreview({ card, playerCard }) {
+  const rank = getVeilRankMeta(card);
+  const form = getCoreFormMeta(playerCard, card);
+  const level = playerCard?.level || 1;
+  const isProtected = Boolean(playerCard?.is_protected);
+
+  return (
+    <div className="mx-auto w-full max-w-[390px]">
+      <CardCanvas card={card} playerCard={playerCard} size="detail">
+        <div
+          className="absolute z-50"
+          style={{ left: DETAIL_OVERLAYS.marks.left, top: DETAIL_OVERLAYS.marks.top }}
+        >
+          <VeilMarks rank={rank} />
+        </div>
+
+        {playerCard && (
+          <div
+            className="absolute z-50 rounded-full border border-primary/45 bg-black/85 px-3 py-1.5 font-display text-xs font-black text-primary shadow-lg backdrop-blur-md"
+            style={{ right: DETAIL_OVERLAYS.level.right, top: DETAIL_OVERLAYS.level.top }}
+          >
+            Lv{level}
+          </div>
+        )}
+
+        {isProtected && (
+          <div
+            className="absolute z-50 flex h-8 w-8 items-center justify-center rounded-full border border-primary/45 bg-black/85 shadow-lg backdrop-blur-md"
+            style={{ right: DETAIL_OVERLAYS.protect.right, top: DETAIL_OVERLAYS.protect.top }}
+          >
+            <Lock className="h-4 w-4 text-primary" />
+          </div>
+        )}
+
+        <div
+          className="absolute z-50"
+          style={{ right: DETAIL_OVERLAYS.form.right, bottom: DETAIL_OVERLAYS.form.bottom }}
+        >
+          <FormPill form={form} />
+        </div>
+      </CardCanvas>
+    </div>
+  );
+}
+
 export default function CardDetailModal({
   card,
   playerCard,
@@ -75,10 +201,7 @@ export default function CardDetailModal({
 
   const loreStage = getLoreStage(card?.evolution_stage);
 
-  const {
-    data: lore,
-    isLoading: loreLoading,
-  } = useQuery({
+  const { data: lore, isLoading: loreLoading } = useQuery({
     queryKey: ['card-lore', card?.id, loreStage],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -98,151 +221,152 @@ export default function CardDetailModal({
   if (!card) return null;
 
   const level = playerCard?.level || 1;
-  const mult = 1 + (level - 1) * 0.1;
   const maxLevel = card.max_level || 50;
   const xpNeeded = level * 50;
+  const xpCurrent = Number(playerCard?.experience || 0);
   const xpPercent = playerCard
-    ? Math.min((playerCard.experience / xpNeeded) * 100, 100)
+    ? Math.min((xpCurrent / xpNeeded) * 100, 100)
     : 0;
 
+  const attack = getOwnedCardStat(playerCard, card, 'attack');
+  const defense = getOwnedCardStat(playerCard, card, 'defense');
+  const hp = getOwnedCardStat(playerCard, card, 'hp');
+
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="bg-card border-border max-w-md max-h-[92vh] overflow-y-auto">
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          setShowBack(false);
+          onClose?.();
+        }
+      }}
+    >
+      <DialogContent className="max-h-[92vh] max-w-md overflow-y-auto border-border bg-card">
         <DialogHeader>
-          <DialogTitle className="font-display text-primary flex items-center gap-2">
-            {elementIcons[card.element]} {card.name}
-            {playerCard?.evolved && <Sparkles className="w-4 h-4 text-primary" />}
+          <DialogTitle className="flex items-center gap-2 font-display text-primary">
+            {card.name}
+            {playerCard?.evolved && <Sparkles className="h-4 w-4 text-primary" />}
           </DialogTitle>
         </DialogHeader>
 
-        {showBack ? (
-          <div className="relative w-full rounded-xl overflow-hidden bg-black/40 border border-border flex items-center justify-center">
-            <CardBack card={card} lore={lore} loading={loreLoading} />
-          </div>
-        ) : (
-          <div className="mx-auto w-full max-w-[340px]">
-            <CardArtCanvas
-              card={card}
-              playerCard={playerCard}
-              size="detail"
-              className="border border-border"
-            />
-          </div>
-        )}
-
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => setShowBack((value) => !value)}
-          className="w-full gap-2"
-        >
+        <div className="space-y-4">
           {showBack ? (
-            <>
-              <ImageIcon className="w-4 h-4" />
-              Show Card Art
-            </>
+            <div className="relative overflow-hidden rounded-2xl border border-border bg-black/40 p-2">
+              <CardBack card={card} lore={lore} loading={loreLoading} />
+            </div>
           ) : (
-            <>
-              <BookOpen className="w-4 h-4" />
-              Show Lore
-            </>
+            <FramedCardPreview card={card} playerCard={playerCard} />
           )}
-        </Button>
 
-        <div className="space-y-3">
-          <div className="flex gap-2 flex-wrap">
-            <Badge className={rarityColors[card.rarity] || rarityColors.common}>
-              {card.rarity}
-            </Badge>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setShowBack((value) => !value)}
+            className="w-full gap-2"
+          >
+            {showBack ? (
+              <>
+                <ImageIcon className="h-4 w-4" />
+                Show Card Art
+              </>
+            ) : (
+              <>
+                <BookOpen className="h-4 w-4" />
+                Show Lore
+              </>
+            )}
+          </Button>
 
-            {card.card_type && <Badge variant="outline">{card.card_type}</Badge>}
-            {card.element && <Badge variant="outline">{card.element}</Badge>}
-            {card.faction && <Badge variant="outline">{card.faction}</Badge>}
-          </div>
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <Badge className={rarityColors[card.rarity] || rarityColors.common}>
+                {card.rarity}
+              </Badge>
 
-          <p className="text-sm text-muted-foreground">
-            {card.description || 'A mysterious card of power.'}
-          </p>
+              {card.card_type && <Badge variant="outline">{card.card_type}</Badge>}
+              {card.element && <Badge variant="outline">{card.element}</Badge>}
+              {card.faction && <Badge variant="outline">{card.faction}</Badge>}
+            </div>
 
-          {playerCard && (
-            <div className="rounded-xl border border-border bg-background/50 p-3 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold text-foreground">Card Protection</p>
-                <p className="text-[11px] text-muted-foreground">
-                  Protected cards cannot be consumed during enhance or evolution.
+            <p className="text-sm text-muted-foreground">
+              {card.description || 'A mysterious card of power.'}
+            </p>
+
+            {playerCard && (
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-background/50 p-3">
+                <div>
+                  <p className="text-xs font-bold text-foreground">Card Protection</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Protected cards cannot be consumed during enhance or evolution.
+                  </p>
+                </div>
+
+                <CardProtectionButton
+                  playerCard={playerCard}
+                  size="md"
+                  onUpdated={onProtectionUpdated}
+                />
+              </div>
+            )}
+
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-lg bg-muted p-2.5 text-center">
+                <Sword className="mx-auto mb-1 h-4 w-4 text-red-400" />
+                <p className="font-display text-lg font-bold">{attack}</p>
+                <p className="text-[10px] text-muted-foreground">ATK</p>
+              </div>
+
+              <div className="rounded-lg bg-muted p-2.5 text-center">
+                <Shield className="mx-auto mb-1 h-4 w-4 text-blue-400" />
+                <p className="font-display text-lg font-bold">{defense}</p>
+                <p className="text-[10px] text-muted-foreground">DEF</p>
+              </div>
+
+              <div className="rounded-lg bg-muted p-2.5 text-center">
+                <Heart className="mx-auto mb-1 h-4 w-4 text-green-400" />
+                <p className="font-display text-lg font-bold">{hp}</p>
+                <p className="text-[10px] text-muted-foreground">HP</p>
+              </div>
+            </div>
+
+            {card.skill_name && (
+              <div className="rounded-lg border border-border bg-secondary/50 p-3">
+                <p className="mb-1 text-xs font-bold text-accent-foreground">
+                  ⚡ {card.skill_name}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {card.skill_description}
                 </p>
               </div>
+            )}
 
-              <CardProtectionButton
-                playerCard={playerCard}
-                size="md"
-                onUpdated={onProtectionUpdated}
-              />
-            </div>
-          )}
+            {playerCard && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs">
+                  <span>
+                    Level {level} / {maxLevel}
+                  </span>
+                  <span>
+                    {xpCurrent} / {xpNeeded} XP
+                  </span>
+                </div>
 
-          <div className="grid grid-cols-3 gap-2">
-            <div className="bg-muted rounded-lg p-2.5 text-center">
-              <Sword className="w-4 h-4 text-red-400 mx-auto mb-1" />
-              <p className="text-lg font-bold font-display">
-                {Math.round((card.base_attack || 0) * mult)}
-              </p>
-              <p className="text-[10px] text-muted-foreground">ATK</p>
-            </div>
+                <Progress value={xpPercent} className="h-2" />
 
-            <div className="bg-muted rounded-lg p-2.5 text-center">
-              <Shield className="w-4 h-4 text-blue-400 mx-auto mb-1" />
-              <p className="text-lg font-bold font-display">
-                {Math.round((card.base_defense || 0) * mult)}
-              </p>
-              <p className="text-[10px] text-muted-foreground">DEF</p>
-            </div>
-
-            <div className="bg-muted rounded-lg p-2.5 text-center">
-              <Heart className="w-4 h-4 text-green-400 mx-auto mb-1" />
-              <p className="text-lg font-bold font-display">
-                {Math.round((card.base_hp || 0) * mult)}
-              </p>
-              <p className="text-[10px] text-muted-foreground">HP</p>
-            </div>
-          </div>
-
-          {card.skill_name && (
-            <div className="bg-secondary/50 rounded-lg p-3 border border-border">
-              <p className="text-xs font-bold text-accent-foreground mb-1">
-                ⚡ {card.skill_name}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {card.skill_description}
-              </p>
-            </div>
-          )}
-
-          {playerCard && (
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs">
-                <span>
-                  Level {level} / {maxLevel}
-                </span>
-                <span>
-                  {playerCard.experience} / {xpNeeded} XP
-                </span>
+                {onLevelUp && level < maxLevel && (
+                  <Button
+                    onClick={() => onLevelUp(playerCard)}
+                    size="sm"
+                    className="w-full gap-2"
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                    Level Up (100 Gold)
+                  </Button>
+                )}
               </div>
-
-              <Progress value={xpPercent} className="h-2" />
-
-              {onLevelUp && level < maxLevel && (
-                <Button
-                  onClick={() => onLevelUp(playerCard)}
-                  size="sm"
-                  className="w-full gap-2"
-                >
-                  <ArrowUp className="w-4 h-4" />
-                  Level Up (100 Gold)
-                </Button>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>
