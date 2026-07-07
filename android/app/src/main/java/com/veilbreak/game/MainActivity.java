@@ -1,0 +1,5 @@
+package com.veilbreak.game;
+
+import com.getcapacitor.BridgeActivity;
+
+public class MainActivity extends BridgeActivity {}

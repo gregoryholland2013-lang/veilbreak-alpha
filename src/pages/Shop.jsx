@@ -12,10 +12,12 @@ import {
   Coins,
   Flame,
   RefreshCw,
+  ShieldCheck,
 } from 'lucide-react';
 
 import PageHeader from '@/components/game/PageHeader';
 import PayPalPurchaseButton from '@/components/game/PayPalPurchaseButton';
+import { isAndroidApp } from '@/lib/platform';
 
 const summonOptions = [
   {
@@ -89,17 +91,73 @@ const shopItems = [
     sku: 'raid_bundle',
     title: 'Raid Bundle',
     price: '$3.99',
-    desc: 'Raid tickets for weekend boss battles',
+    desc: 'Raid tickets for weekend boss battles.',
     icon: Flame,
     iconClass: 'text-orange-300',
   },
 ];
 
+function AndroidPurchasesDisabledNotice({ compact = false }) {
+  return (
+    <div
+      className={`rounded-2xl border border-primary/25 bg-primary/10 ${
+        compact ? 'p-3' : 'p-4'
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-primary/30 bg-black/20">
+          <ShieldCheck className="h-4 w-4 text-primary" />
+        </div>
+
+        <div>
+          <p className="text-xs font-black text-primary">
+            Android purchases coming soon
+          </p>
+
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+            Purchases are temporarily disabled in the Android beta while Google
+            Play Billing is being added. You can still earn rewards through
+            quests, raids, summons, login bonuses, and events.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Shop() {
+  const androidApp = isAndroidApp();
   const paypalClientId = import.meta.env.VITE_PAYPAL_CLIENT_ID;
+
+  const paypalAvailable = Boolean(paypalClientId) && !androidApp;
 
   const handlePurchaseSuccess = () => {
     window.dispatchEvent(new Event('veilbreak-purchase-complete'));
+  };
+
+  const renderCheckoutArea = ({ sku, price, compact = false }) => {
+    if (androidApp) {
+      return <AndroidPurchasesDisabledNotice compact={compact} />;
+    }
+
+    return (
+      <div className="mt-4 rounded-2xl border border-primary/20 bg-primary/10 px-3 py-2">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-xs font-black text-primary">{price}</span>
+
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Secure Checkout
+          </span>
+        </div>
+
+        {paypalAvailable && (
+          <PayPalPurchaseButton
+            sku={sku}
+            onSuccess={handlePurchaseSuccess}
+          />
+        )}
+      </div>
+    );
   };
 
   const shopContent = (
@@ -129,13 +187,18 @@ export default function Shop() {
               </h1>
 
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Summon cards, buy packs, refill stamina, and prepare for events.
+                Summon cards, prepare for events, and manage your account
+                progression.
               </p>
             </div>
           </div>
         </motion.section>
 
-        {!paypalClientId && (
+        {androidApp && (
+          <AndroidPurchasesDisabledNotice />
+        )}
+
+        {!androidApp && !paypalClientId && (
           <div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-xs text-red-200">
             Missing VITE_PAYPAL_CLIENT_ID in .env.local. PayPal purchases cannot
             load until this is added.
@@ -206,7 +269,7 @@ export default function Shop() {
             </h2>
 
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Secure Checkout
+              {androidApp ? 'Coming Soon' : 'Secure Checkout'}
             </p>
           </div>
 
@@ -251,23 +314,10 @@ export default function Shop() {
                     ))}
                   </div>
 
-                  <div className="mt-4 rounded-2xl border border-primary/20 bg-primary/10 px-3 py-2">
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="text-xs font-black text-primary">
-                        {pack.price}
-                      </span>
-                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                        Secure Checkout
-                      </span>
-                    </div>
-
-                    {paypalClientId && (
-                      <PayPalPurchaseButton
-                        sku={pack.sku}
-                        onSuccess={handlePurchaseSuccess}
-                      />
-                    )}
-                  </div>
+                  {renderCheckoutArea({
+                    sku: pack.sku,
+                    price: pack.price,
+                  })}
                 </div>
               </div>
             </motion.div>
@@ -300,30 +350,49 @@ export default function Shop() {
                   {item.desc}
                 </p>
 
-                <p className="mt-3 text-sm font-black text-primary">
-                  {item.price}
-                </p>
+                {!androidApp && (
+                  <p className="mt-3 text-sm font-black text-primary">
+                    {item.price}
+                  </p>
+                )}
 
-                {paypalClientId && (
-                  <PayPalPurchaseButton
-                    sku={item.sku}
-                    onSuccess={handlePurchaseSuccess}
-                  />
+                {androidApp ? (
+                  <div className="mt-3">
+                    <AndroidPurchasesDisabledNotice compact />
+                  </div>
+                ) : (
+                  paypalAvailable && (
+                    <PayPalPurchaseButton
+                      sku={item.sku}
+                      onSuccess={handlePurchaseSuccess}
+                    />
+                  )
                 )}
               </motion.div>
             ))}
           </div>
         </section>
 
-        <div className="rounded-2xl border border-yellow-400/25 bg-yellow-400/10 p-3 text-xs text-muted-foreground">
-          Secure PayPal checkout is active. Purchases are captured through Paypal
-          and rewards are delivered to your Veilbreak account after confirmation.
-        </div>
+        {!androidApp && (
+          <div className="rounded-2xl border border-yellow-400/25 bg-yellow-400/10 p-3 text-xs text-muted-foreground">
+            Secure PayPal checkout is active. Purchases are captured through
+            PayPal and rewards are delivered to your Veilbreak account after
+            confirmation.
+          </div>
+        )}
+
+        {androidApp && (
+          <div className="rounded-2xl border border-border/70 bg-card/70 p-3 text-xs leading-relaxed text-muted-foreground">
+            Android beta note: paid purchases are disabled while Google Play
+            Billing is being added. Gameplay rewards, quests, raids, events, and
+            earned summons remain available.
+          </div>
+        )}
       </div>
     </div>
   );
 
-  if (!paypalClientId) {
+  if (!paypalAvailable) {
     return shopContent;
   }
 

@@ -2,12 +2,19 @@ import React from 'react';
 import { PayPalButtons } from '@paypal/react-paypal-js';
 import { supabase } from '@/lib/supabaseClient';
 import { toast } from 'sonner';
+import { isAndroidApp } from '@/lib/platform';
 
 export default function PayPalPurchaseButton({
   sku,
   label = 'Buy with PayPal',
   onSuccess,
 }) {
+  // Google Play compliance safety:
+  // PayPal should never render inside the Android app build.
+  if (isAndroidApp()) {
+    return null;
+  }
+
   if (!sku) return null;
 
   return (
