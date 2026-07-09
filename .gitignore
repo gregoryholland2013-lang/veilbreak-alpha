@@ -41,3 +41,12 @@ split_cards/
 art_concepts_with_lore/
 card_sheets/
 batch_card_splitter.py
+
+# Android / Gradle generated files
+android/.gradle/
+android/**/build/
+android/local.properties
+*.apk
+*.aab
+*.apks
+android_broken/
