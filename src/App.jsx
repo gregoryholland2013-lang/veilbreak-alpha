@@ -24,6 +24,7 @@ import EventDungeon from './pages/EventDungeon';
 import HolyWars from './pages/HolyWars';
 import RaidEvent from './pages/RaidEvent';
 import Inventory from '@/pages/Inventory';
+import DeleteAccountPage from '@/pages/DeleteAccountPage';
 import Shop from './pages/Shop';
 
 function ProtectedGameLayout() {
@@ -41,6 +42,7 @@ function App() {
         <Routes>
           {/* Public route: must stay outside AuthGate so password recovery links can open. */}
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/delete-account" element={<DeleteAccountPage />} />
 
           {/* Protected game routes */}
           <Route element={<ProtectedGameLayout />}>
