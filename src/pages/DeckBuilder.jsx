@@ -37,6 +37,126 @@ async function getAuthUser() {
   return user;
 }
 
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+
+    const text = String(value).trim();
+
+    if (text) return text;
+  }
+
+  return '';
+}
+
+function normalizeKey(value) {
+  return String(value || '')
+    .toLowerCase()
+    .trim()
+    .replaceAll(' ', '_')
+    .replaceAll('-', '_');
+}
+
+function getDisplayName(card, playerCard) {
+  return (
+    firstNonEmpty(
+      card?.full_card_name,
+      card?.card_line,
+      card?.name,
+      card?.card_name,
+      playerCard?.full_card_name,
+      playerCard?.card_line,
+      playerCard?.name,
+      playerCard?.card_name
+    ) || 'Unknown Card'
+  );
+}
+
+function getRawFaction(card, playerCard) {
+  return (
+    firstNonEmpty(
+      card?.faction,
+      card?.faction_name,
+      card?.card_faction,
+      card?.element,
+      playerCard?.faction,
+      playerCard?.faction_name,
+      playerCard?.card_faction,
+      playerCard?.element
+    ) || 'Unknown'
+  );
+}
+
+function getRawRarity(card, playerCard) {
+  return (
+    firstNonEmpty(
+      card?.rarity_tier,
+      card?.rarity,
+      playerCard?.rarity_tier,
+      playerCard?.rarity
+    ) || 'Vessel'
+  );
+}
+
+function getRawEvoForm(card, playerCard) {
+  return (
+    firstNonEmpty(
+      card?.evo_form,
+      card?.evolution,
+      playerCard?.evo_form,
+      playerCard?.evolution
+    ) || 'base'
+  );
+}
+
+function normalizeCardForDisplay(card = {}, playerCard = {}) {
+  const name = getDisplayName(card, playerCard);
+  const faction = getRawFaction(card, playerCard);
+  const rarity = getRawRarity(card, playerCard);
+  const evoForm = getRawEvoForm(card, playerCard);
+
+  return {
+    ...card,
+
+    id: card?.id || playerCard?.card_id,
+
+    // Name fields — this is the main fix.
+    name,
+    card_name: card?.card_name || name,
+    card_line: card?.card_line || playerCard?.card_line || name,
+    full_card_name: card?.full_card_name || playerCard?.full_card_name || name,
+
+    // Rarity fields.
+    rarity,
+    rarity_tier: card?.rarity_tier || playerCard?.rarity_tier || rarity,
+
+    // Faction/element fields.
+    faction,
+    element: card?.element || faction,
+    faction_key: normalizeKey(faction),
+
+    // Evo fields.
+    evo_form: card?.evo_form || playerCard?.evo_form || evoForm,
+    evolution: card?.evolution || playerCard?.evolution || evoForm,
+
+    // Image fields.
+    image_url:
+      card?.image_url ||
+      card?.artwork_url ||
+      card?.image ||
+      playerCard?.image_url ||
+      playerCard?.artwork_url ||
+      playerCard?.image ||
+      '',
+
+    // Stat fields.
+    base_attack: card?.base_attack ?? playerCard?.base_attack ?? playerCard?.attack ?? 0,
+    base_defense:
+      card?.base_defense ?? playerCard?.base_defense ?? playerCard?.defense ?? 0,
+    base_hp: card?.base_hp ?? playerCard?.base_hp ?? playerCard?.hp ?? 0,
+  };
+}
+
 function getOwnedCardStat(playerCard, card, stat) {
   if (stat === 'attack') {
     return Number(
@@ -82,7 +202,20 @@ function getOwnedCardStats(playerCard, card) {
   };
 }
 
-function getStageLabel(playerCard) {
+function getStageLabel(playerCard, card) {
+  const evoKey = normalizeKey(
+    playerCard?.evo_form ||
+      playerCard?.evolution ||
+      card?.evo_form ||
+      card?.evolution ||
+      ''
+  );
+
+  if (evoKey === 'final') return 'Final';
+  if (evoKey === 'base_plus_plus') return 'Base++';
+  if (evoKey === 'base_plus') return 'Base+';
+  if (evoKey === 'base') return 'Base';
+
   const count = Number(playerCard?.evolve_count || 0);
 
   if (count >= 3) return 'Final';
@@ -152,20 +285,33 @@ export default function DeckBuilder() {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
 
+  const cardsById = useMemo(() => {
+    return new Map((cards || []).map((card) => [String(card.id), card]));
+  }, [cards]);
+
   const enriched = useMemo(() => {
     return playerCards
       .map((pc) => {
-        const card = cards.find((c) => c.id === pc.card_id);
+        const rawCard =
+          cardsById.get(String(pc.card_id)) ||
+          pc.cards ||
+          pc.card ||
+          pc.card_definition ||
+          pc.cardDef ||
+          null;
 
-        if (!card) return null;
+        if (!rawCard && !pc.card_line && !pc.full_card_name && !pc.name) {
+          return null;
+        }
 
+        const card = normalizeCardForDisplay(rawCard || {}, pc);
         const stats = getOwnedCardStats(pc, card);
 
         return {
           card,
           playerCard: pc,
           stats,
-          stageLabel: getStageLabel(pc),
+          stageLabel: getStageLabel(pc, card),
         };
       })
       .filter(Boolean)
@@ -180,7 +326,7 @@ export default function DeckBuilder() {
 
         return String(a.card.name || '').localeCompare(String(b.card.name || ''));
       });
-  }, [cards, playerCards]);
+  }, [cardsById, playerCards]);
 
   const filteredCards = useMemo(() => {
     const value = search.trim().toLowerCase();
@@ -190,8 +336,13 @@ export default function DeckBuilder() {
     return enriched.filter(({ card, stageLabel }) => {
       return (
         String(card.name || '').toLowerCase().includes(value) ||
+        String(card.full_card_name || '').toLowerCase().includes(value) ||
+        String(card.card_line || '').toLowerCase().includes(value) ||
+        String(card.rarity_tier || '').toLowerCase().includes(value) ||
         String(card.rarity || '').toLowerCase().includes(value) ||
+        String(card.faction || '').toLowerCase().includes(value) ||
         String(card.element || '').toLowerCase().includes(value) ||
+        String(card.evo_form || '').toLowerCase().includes(value) ||
         String(stageLabel || '').toLowerCase().includes(value)
       );
     });
