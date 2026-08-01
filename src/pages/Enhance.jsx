@@ -22,6 +22,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import usePersistentState from '@/hooks/usePersistentState';
 
 const BASE_MAX_LEVEL = 10;
 const FINAL_FORM_MAX_LEVEL = 20;
@@ -482,11 +483,12 @@ function FilterBar({ search, setSearch, lineFilter, setLineFilter, rarityFilter,
   );
 }
 
-function useFilteredCards(items, defaultSort = 'total_desc') {
-  const [search, setSearch] = useState('');
-  const [lineFilter, setLineFilter] = useState('all');
-  const [rarityFilter, setRarityFilter] = useState('all');
-  const [sort, setSort] = useState(defaultSort);
+function useFilteredCards(items, defaultSort = 'total_desc', storageKey = 'default') {
+  const storageRoot = `veilbreak:filters:${storageKey}`;
+  const [search, setSearch] = usePersistentState(`${storageRoot}:search`, '');
+  const [lineFilter, setLineFilter] = usePersistentState(`${storageRoot}:line`, 'all');
+  const [rarityFilter, setRarityFilter] = usePersistentState(`${storageRoot}:rarity`, 'all');
+  const [sort, setSort] = usePersistentState(`${storageRoot}:sort`, defaultSort);
 
   const lineOptions = useMemo(() => {
     const map = new Map();
@@ -499,6 +501,18 @@ function useFilteredCards(items, defaultSort = 'total_desc') {
     items.forEach((item) => { const key = normalizeKey(item.rarityLabel); map.set(key, item.rarityLabel); });
     return Array.from(map.entries()).map(([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label));
   }, [items]);
+
+  useEffect(() => {
+    if (lineFilter !== 'all' && !lineOptions.some((option) => option.key === lineFilter)) {
+      setLineFilter('all');
+    }
+  }, [lineFilter, lineOptions, setLineFilter]);
+
+  useEffect(() => {
+    if (rarityFilter !== 'all' && !rarityOptions.some((option) => option.key === rarityFilter)) {
+      setRarityFilter('all');
+    }
+  }, [rarityFilter, rarityOptions, setRarityFilter]);
 
   const filtered = useMemo(() => {
     const searchText = normalizeText(search);
@@ -523,7 +537,7 @@ function useFilteredCards(items, defaultSort = 'total_desc') {
 }
 
 function EnhanceCardPicker({ enrichedCards, onSelect, title, subtitle, defaultSort = 'total_desc', mode = 'enhance' }) {
-  const filters = useFilteredCards(enrichedCards, defaultSort);
+  const filters = useFilteredCards(enrichedCards, defaultSort, `enhance-target-${mode}`);
   return (
     <div className="space-y-4">
       <div><h3 className="font-display text-2xl font-black text-primary">{title}</h3><p className="mt-1 text-sm text-muted-foreground">{subtitle}</p></div>
@@ -542,7 +556,7 @@ function EnhanceCardPicker({ enrichedCards, onSelect, title, subtitle, defaultSo
 function FodderPicker({ target, enrichedCards, onConfirm, onBack, disabled }) {
   const [selectedIds, setSelectedIds] = useState([]);
   const materialPool = useMemo(() => enrichedCards.filter((item) => item.playerCard.id !== target.playerCard.id), [enrichedCards, target]);
-  const filters = useFilteredCards(materialPool, 'rarity_asc');
+  const filters = useFilteredCards(materialPool, 'rarity_asc', 'enhance-material-fodder');
   const selectedItems = useMemo(() => materialPool.filter((item) => selectedIds.includes(item.playerCard.id)), [materialPool, selectedIds]);
   const totalXp = selectedItems.reduce((sum, item) => sum + item.fodderXp, 0);
 
@@ -576,7 +590,7 @@ function FodderPicker({ target, enrichedCards, onConfirm, onBack, disabled }) {
 function EvolvePanel({ target, enrichedCards, onEvolve, onBack, disabled }) {
   const [selectedId, setSelectedId] = useState('');
   const validMaterials = useMemo(() => enrichedCards.filter((item) => isValidEvolutionMaterial(target.playerCard, target.card, item.playerCard, item.card)), [enrichedCards, target]);
-  const filters = useFilteredCards(validMaterials, 'evolution_asc');
+  const filters = useFilteredCards(validMaterials, 'evolution_asc', 'enhance-material-evolve');
   const selectedItem = validMaterials.find((item) => item.playerCard.id === selectedId);
   const currentStageCount = target.stageCount;
   const currentStage = getNextEvolutionStage(currentStageCount);
@@ -632,7 +646,7 @@ export default function Enhance() {
   const queryClient = useQueryClient();
   const [step, setStep] = useState('pick');
   const [selectedTarget, setSelectedTarget] = useState(null);
-  const [tab, setTab] = useState('enhance');
+  const [tab, setTab] = usePersistentState('veilbreak:enhance:active-tab', 'enhance');
   const [processing, setProcessing] = useState(false);
   const [skillShards, setSkillShards] = useState(0);
 
@@ -652,6 +666,30 @@ export default function Enhance() {
   const enrichedCards = useMemo(() => playerCards.map((pc) => { const card = cards.find((c) => c.id === pc.card_id); return card ? buildDisplayItem({ card, playerCard: pc }) : null; }).filter(Boolean), [cards, playerCards]);
   const capacity = profile ? cardCapacity(profile.level || 1) : 50;
   const atCapacity = playerCards.length >= capacity;
+  useEffect(() => {
+    const scrollToTop = () => {
+      const scrollRoot =
+        document.querySelector('[data-veilbreak-scroll-root="true"]') ||
+        document.querySelector('main');
+
+      if (scrollRoot && typeof scrollRoot.scrollTo === 'function') {
+        scrollRoot.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      }
+
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    };
+
+    const frame = window.requestAnimationFrame(scrollToTop);
+    const timeout = window.setTimeout(scrollToTop, 80);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timeout);
+    };
+  }, [step, tab]);
+
   const resetFlow = () => { setStep('pick'); setSelectedTarget(null); };
 
   const handleEnhanceConfirm = async (fodderIds, totalXpGain) => {
